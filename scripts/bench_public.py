@@ -1,16 +1,23 @@
-"""Reproducible end-to-end PredGate benchmark runner.
+"""Reproducible end-to-end PredGate benchmark runner on fresh seeds (default: 9000..9029).
 
-Runs all 4 frozen-threshold evaluation suites with ZERO tuning against controls:
-1. Synthetic 7-fault benchmark (seeds 1000..1029) with stronger baselines + Evidently 0.7 defaults
-2. Public fairness validation (seeds 5000..5029: UCI Adult, German Credit, Synthetic Credit)
-3. Benign-change control (seeds 6000..6029: 6 harmless retrains x 30 seeds x 3 datasets = 540 trials)
-   reporting per-check and overall FAIL rate and WARN alert-fatigue rate
-4. Held-out validation (seeds 7000..7029: Bank Marketing OpenML 1461 & COMPAS OpenML 42192,
-   including 2 unseen fault families: silent_null_imputation & cohort_feature_corruption)
+Runs all suites across ALL 5 datasets (UCI Adult, German Credit, Synthetic Credit,
+Bank Marketing, COMPAS) with frozen defaults and ZERO post-hoc tuning:
+1. Synthetic 7-fault benchmark (feature_leakage, label_shift, degraded_slice,
+   schema_drift, latency_regression, fairness_regression, noop)
+2. Benign-change control: 9 harmless retrains (original 6 + drop_irrelevant_feature,
+   change_imputation, rescale_inputs) x 30 fresh seeds x 5 datasets = 1,350 trials,
+   reporting Quality findings separately from Latency findings alongside per-check
+   FAIL/WARN rates, algo-swap fairness metric triggers, stronger baselines, and
+   Evidently 0.7.23 defaults
+3. Full fault validation across all 5 datasets covering all fault families
+   (silent_null_imputation, cohort_feature_corruption, fairness_threshold_shift,
+   fairness_threshold_shift_hi, fairness_proxy_feature, fairness_regression, noop)
+4. Standalone public fairness check summary (Adult, German Credit, Synthetic Credit)
+   for apples-to-apples comparison against prior commits
 
 Writes aggregate-only summary JSON to docs/benchmark_results.json, writes raw per-seed
-records to release_artifacts/benchmark_per_seed_<commit>.json, and renders docs/benchmark.md
-strictly from docs/benchmark_results.json.
+records to release_artifacts/benchmark_per_seed_<commit>.json, and renders
+docs/benchmark.md strictly from docs/benchmark_results.json.
 """
 
 from __future__ import annotations
@@ -18,9 +25,11 @@ from __future__ import annotations
 import argparse
 import atexit
 import json
+import os
 import subprocess
 import tempfile
 import time
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -34,7 +43,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, RobustScaler, StandardScaler
 
 from predgate.benchmark import (
     FAULT_DESCRIPTIONS,
@@ -66,6 +75,14 @@ from predgate.config import (
 from predgate.stats import demographic_parity_diff
 from predgate.verdict import CheckResult, compute_verdict
 
+ALL_DATASETS: list[str] = [
+    "UCI Adult",
+    "German Credit",
+    "Synthetic Credit",
+    "Bank Marketing",
+    "COMPAS",
+]
+
 SYNTHETIC_FAULTS: list[str] = [
     "feature_leakage",
     "label_shift",
@@ -91,18 +108,23 @@ BENIGN_CHANGES: list[str] = [
     "more_data_20pct",
     "irrelevant_feature",
     "preprocessing_change",
+    "drop_irrelevant_feature",
+    "change_imputation",
+    "rescale_inputs",
 ]
 
-HELD_OUT_FAULTS: list[tuple[str, str]] = [
-    ("silent_null_imputation", "`silent_null_imputation` (new fault: 40% null->0 in train)"),
-    ("cohort_feature_corruption", "`cohort_feature_corruption` (new fault: 2σ cohort noise)"),
+ALL_DATASET_FAULTS: list[tuple[str, str]] = [
+    ("silent_null_imputation", "`silent_null_imputation` (40% null->0 in train)"),
+    ("cohort_feature_corruption", "`cohort_feature_corruption` (2σ cohort noise)"),
     ("fairness_threshold_shift", "`fairness_threshold_shift` (`τ=0.25`)"),
+    ("fairness_threshold_shift_hi", "`fairness_threshold_shift_hi` (`τ=0.75`)"),
     ("fairness_proxy_feature", "`fairness_proxy_feature`"),
     ("fairness_regression", "`fairness_regression`"),
     ("noop", "`noop` (FP rate)"),
 ]
 
-BENIGN_CHECKS: list[str] = ["drift", "leakage", "label_shift", "slices", "budgets", "fairness"]
+QUALITY_CHECKS: list[str] = ["drift", "leakage", "label_shift", "slices", "fairness"]
+ALL_CHECKS: list[str] = ["drift", "leakage", "label_shift", "slices", "fairness", "budgets"]
 
 # ── Per-worker persistent Evidently comparator client ──
 
@@ -125,8 +147,14 @@ def _close_evidently_worker() -> None:
         _EVIDENTLY_TMPDIR = None
 
 
-def _init_evidently_worker(evidently_python: str | None) -> None:
+def _init_worker(evidently_python: str | None) -> None:
     global _EVIDENTLY_PROC, _EVIDENTLY_TMPDIR
+    import warnings
+
+    warnings.filterwarnings("ignore", message="Found unknown categories")
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["OPENBLAS_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
     if not evidently_python:
         return
     comp_script = Path(__file__).resolve().parent / "evidently_comparator.py"
@@ -155,8 +183,9 @@ def _run_evidently_eval(
     tmp = Path(_EVIDENTLY_TMPDIR.name)
     tr_ref_p: str | None = None
     tr_cur_p: str | None = None
-    # Skip redundant DataDriftPreset() only when train_cur is byte-for-byte identical to train_ref
-    if not train_ref.equals(train_cur):
+    # Skip redundant DataDriftPreset() when shared columns of train_cur are byte-identical to train_ref
+    common_cols = [c for c in train_ref.columns if c in train_cur.columns]
+    if not train_ref[common_cols].equals(train_cur[common_cols]):
         tr_ref_path = tmp / "tr_ref.csv"
         tr_cur_path = tmp / "tr_cur.csv"
         train_ref.to_csv(tr_ref_path, index=False)
@@ -166,7 +195,6 @@ def _run_evidently_eval(
 
     te_ref_p = tmp / "te_ref.csv"
     te_cur_p = tmp / "te_cur.csv"
-
     te_ref = test_df[[target_col]].copy()
     te_ref["__pred__"] = np.asarray(champ_preds, dtype=int)
     te_cur = test_df[[target_col]].copy()
@@ -235,7 +263,6 @@ def _load_german_frame() -> pd.DataFrame:
 
 
 def _load_bank_marketing_frame() -> pd.DataFrame:
-    """Download UCI Bank Marketing (OpenML data_id=1461) — held-out dataset #1."""
     bunch = fetch_openml(data_id=1461, parser="liac-arff", as_frame=True)
     df = bunch.frame.copy()
     rename_map = {
@@ -264,7 +291,6 @@ def _load_bank_marketing_frame() -> pd.DataFrame:
 
 
 def _load_compas_frame() -> pd.DataFrame:
-    """Download COMPAS Two-Year Recidivism (OpenML data_id=42192) — held-out dataset #2."""
     bunch = fetch_openml(data_id=42192, parser="liac-arff", as_frame=True)
     df = bunch.frame.copy()
     target_col = bunch.target.name if hasattr(bunch.target, "name") else "two_year_recid"
@@ -284,17 +310,37 @@ def _load_compas_frame() -> pd.DataFrame:
 # ── Model builders ──
 
 
-def _build_preprocessor(X: pd.DataFrame, alt_preprocessing: bool = False) -> ColumnTransformer:
+def _build_preprocessor(X: pd.DataFrame, mode: str = "default") -> ColumnTransformer:
     cat_cols = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
     num_cols = [c for c in X.columns if c not in cat_cols]
-    if alt_preprocessing:
+    if mode == "alt_preprocessing":
         num_pipe: Any = Pipeline(
             [("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]
         )
-        cat_enc = OneHotEncoder(handle_unknown="ignore", drop="if_binary", sparse_output=False)
+        cat_enc: Any = OneHotEncoder(handle_unknown="ignore", drop="if_binary", sparse_output=False)
+    elif mode == "champ_imputation":
+        num_pipe = SimpleImputer(strategy="median")
+        cat_enc = Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="most_frequent")),
+                ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ]
+        )
+    elif mode == "change_imputation":
+        num_pipe = SimpleImputer(strategy="mean", add_indicator=True)
+        cat_enc = Pipeline(
+            [
+                ("impute", SimpleImputer(strategy="constant", fill_value="__missing__")),
+                ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+            ]
+        )
+    elif mode == "rescale_inputs":
+        num_pipe = RobustScaler()
+        cat_enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     else:
         num_pipe = "passthrough"
         cat_enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+
     return ColumnTransformer(
         transformers=[("num", num_pipe, num_cols), ("cat", cat_enc, cat_cols)],
         remainder="drop",
@@ -307,25 +353,36 @@ def _train_pipeline(
     seed: int,
     variant: str = "champion_gbdt",
 ) -> Pipeline:
-    X_norm = _normalize_frame(X.assign(_tmp=0), "_tmp").drop(columns=["_tmp"])
+    X_norm = X.copy()
+    if variant not in ("champ_imputation", "change_imputation"):
+        X_norm = _normalize_frame(X_norm.assign(_tmp=0), "_tmp").drop(columns=["_tmp"])
     if variant == "champion_gbdt":
-        prep = _build_preprocessor(X_norm, alt_preprocessing=False)
+        prep = _build_preprocessor(X_norm, mode="default")
         clf: Any = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=seed)
     elif variant == "hyperparam_change":
-        prep = _build_preprocessor(X_norm, alt_preprocessing=False)
+        prep = _build_preprocessor(X_norm, mode="default")
         clf = GradientBoostingClassifier(
             n_estimators=75, max_depth=4, learning_rate=0.08, random_state=seed
         )
     elif variant == "algo_swap_rf":
-        prep = _build_preprocessor(X_norm, alt_preprocessing=False)
+        prep = _build_preprocessor(X_norm, mode="default")
         clf = RandomForestClassifier(
             n_estimators=60, max_depth=8, min_samples_leaf=5, random_state=seed
         )
     elif variant == "algo_swap_logreg":
-        prep = _build_preprocessor(X_norm, alt_preprocessing=True)
+        prep = _build_preprocessor(X_norm, mode="alt_preprocessing")
         clf = LogisticRegression(max_iter=500, random_state=seed)
     elif variant == "preprocessing_change":
-        prep = _build_preprocessor(X_norm, alt_preprocessing=True)
+        prep = _build_preprocessor(X_norm, mode="alt_preprocessing")
+        clf = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=seed)
+    elif variant == "champ_imputation":
+        prep = _build_preprocessor(X_norm, mode="champ_imputation")
+        clf = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=seed)
+    elif variant == "change_imputation":
+        prep = _build_preprocessor(X_norm, mode="change_imputation")
+        clf = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=seed)
+    elif variant == "rescale_inputs":
+        prep = _build_preprocessor(X_norm, mode="rescale_inputs")
         clf = GradientBoostingClassifier(n_estimators=50, max_depth=3, random_state=seed)
     else:
         raise ValueError(f"Unknown model variant: {variant}")
@@ -363,7 +420,8 @@ class CohortCorruptedModel:
         rng = np.random.RandomState(self.seed)
         for col, std in self.numeric_stds.items():
             if col in X_mod.columns and std > 0:
-                vals = X_mod.loc[mask, col].astype(float).values
+                X_mod[col] = X_mod[col].astype(float)
+                vals = X_mod.loc[mask, col].values
                 X_mod.loc[mask, col] = vals + rng.normal(0.0, 2.0 * std, size=n_m)
         return X_mod
 
@@ -372,9 +430,6 @@ class CohortCorruptedModel:
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         return np.asarray(self.base_model.predict_proba(self._corrupt(X)), dtype=float)
-
-
-# ── Shared frozen check runner (ZERO tuning) ──
 
 
 def _run_all_frozen_checks(
@@ -387,8 +442,9 @@ def _run_all_frozen_checks(
     champion: Any,
     candidate: Any,
     seed: int,
+    run_budgets: bool = True,
 ) -> tuple[Any, list[CheckResult]]:
-    """Run all 6 schema-agnostic PredGate checks using 100% frozen default thresholds."""
+    """Run PredGate checks using 100% frozen default thresholds."""
     results: list[CheckResult] = [
         run_drift_check(train_cand, train_ref, target_col, DriftConfig(enabled=True)),
         run_leakage_check(
@@ -408,14 +464,6 @@ def _run_all_frozen_checks(
             SliceConfig(enabled=True, by=slice_cols, n_bootstrap=200),
             seed=seed,
         ),
-        run_budgets_check(
-            test_eval,
-            target_col,
-            candidate,
-            champion,
-            BudgetConfig(enabled=True),
-            seed=seed,
-        ),
         run_fairness_check(
             test_eval,
             target_col,
@@ -425,10 +473,97 @@ def _run_all_frozen_checks(
             seed=seed,
         ),
     ]
+    if run_budgets:
+        results.append(
+            run_budgets_check(
+                test_eval,
+                target_col,
+                candidate,
+                champion,
+                BudgetConfig(enabled=True),
+                seed=seed,
+            )
+        )
     return compute_verdict(results), results
 
 
-# ── Suite 1: Synthetic 7-fault with Evidently & stronger baselines ──
+def _split_dataset(
+    ds_name: str,
+    full_df: pd.DataFrame | None,
+    seed: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, str, str, str, list[str], str]:
+    """Return (train_base, train_more_20pct, test_df, target_col, protected_col, minority_val, slice_cols, null_col)."""
+    rng = np.random.RandomState(seed)
+    if ds_name == "UCI Adult":
+        assert full_df is not None
+        idx = rng.choice(len(full_df), size=5100, replace=False)
+        return (
+            full_df.iloc[idx[:3000]].reset_index(drop=True),
+            full_df.iloc[idx[:3600]].reset_index(drop=True),
+            full_df.iloc[idx[3600:5100]].reset_index(drop=True),
+            "target",
+            "sex",
+            "Female",
+            ["sex", "race"],
+            "hours-per-week",
+        )
+    if ds_name == "German Credit":
+        assert full_df is not None
+        idx = rng.permutation(len(full_df))
+        return (
+            full_df.iloc[idx[:550]].reset_index(drop=True),
+            full_df.iloc[idx[:660]].reset_index(drop=True),
+            full_df.iloc[idx[700:1000]].reset_index(drop=True),
+            "target",
+            "sex",
+            "female",
+            ["sex", "housing"],
+            "credit_amount",
+        )
+    if ds_name == "Synthetic Credit":
+        train_more, test_df = _generate_data(seed=seed, n=3600)
+        train_more = _normalize_frame(train_more, "default")
+        test_df = _normalize_frame(test_df, "default")
+        return (
+            train_more.iloc[:3000].reset_index(drop=True),
+            train_more.reset_index(drop=True),
+            test_df.reset_index(drop=True),
+            "default",
+            "gender",
+            "female",
+            ["region", "gender"],
+            "income",
+        )
+    if ds_name == "Bank Marketing":
+        assert full_df is not None
+        idx = rng.choice(len(full_df), size=5100, replace=False)
+        return (
+            full_df.iloc[idx[:3000]].reset_index(drop=True),
+            full_df.iloc[idx[:3600]].reset_index(drop=True),
+            full_df.iloc[idx[3600:5100]].reset_index(drop=True),
+            "target",
+            "marital",
+            "divorced",
+            ["marital", "education"],
+            "duration",
+        )
+    if ds_name == "COMPAS":
+        assert full_df is not None
+        idx = rng.permutation(len(full_df))
+        return (
+            full_df.iloc[idx[:3000]].reset_index(drop=True),
+            full_df.iloc[idx[:3600]].reset_index(drop=True),
+            full_df.iloc[idx[3600:5100]].reset_index(drop=True),
+            "target",
+            "race",
+            "Caucasian",
+            ["race", "sex"],
+            "priors_count",
+        )
+    raise ValueError(f"Unknown dataset: {ds_name}")
+
+
+# ── Suite 1: Synthetic 7-fault on fresh seeds ──
 
 
 def _run_synth_7fault_trial(args: tuple[str, int]) -> dict[str, Any]:
@@ -460,55 +595,22 @@ def _run_synth_7fault_trial(args: tuple[str, int]) -> dict[str, Any]:
     champ_acc = float(accuracy_score(y_test, champ_preds))
     cand_acc = float(accuracy_score(y_test, cand_preds))
 
-    baseline_detected = abs(champ_acc - cand_acc) > 0.01
-    pg_acc_det = per_group_accuracy_drop_baseline(
-        y_test.values, champ_preds, cand_preds, test_eval, ["region", "gender"]
+    verdict, checks = _run_all_frozen_checks(
+        faulty_train,
+        clean_train,
+        test_eval,
+        "default",
+        "gender",
+        ["region", "gender"],
+        champion,
+        candidate,
+        seed=seed,
+        run_budgets=fault_type in ("latency_regression", "noop"),
     )
-    fixed_dp_det = fixed_dp_limit_baseline(cand_preds, test_eval["gender"].values, dp_limit=0.10)
     evidently_det = _run_evidently_eval(
         clean_train, faulty_train, test_eval, "default", champ_preds, cand_preds
     )
 
-    checks: list[CheckResult] = [
-        run_drift_check(faulty_train, clean_train, "default", DriftConfig(enabled=True)),
-        run_leakage_check(
-            faulty_train,
-            test_eval,
-            "default",
-            LeakageConfig(enabled=True),
-            reference_df=clean_train,
-        ),
-        run_label_shift_check(
-            faulty_train,
-            clean_train,
-            "default",
-            LabelShiftConfig(enabled=True, by=["region", "gender", "age_bucket"]),
-        ),
-        run_slices_check(
-            test_eval,
-            "default",
-            champion,
-            candidate,
-            SliceConfig(enabled=True, by=["region", "gender"], min_slice_size=20, n_bootstrap=200),
-            seed=seed,
-        ),
-        run_fairness_check(
-            test_eval,
-            "default",
-            candidate,
-            champion,
-            FairnessConfig(enabled=True, protected=["gender"]),
-            seed=seed,
-        ),
-    ]
-    if fault_type in ("latency_regression", "noop"):
-        checks.append(
-            run_budgets_check(
-                test_eval, "default", candidate, champion, BudgetConfig(enabled=True), seed=seed
-            )
-        )
-
-    verdict = compute_verdict(checks)
     return {
         "fault_type": fault_type,
         "seed": seed,
@@ -516,219 +618,123 @@ def _run_synth_7fault_trial(args: tuple[str, int]) -> dict[str, Any]:
         "predgate_detected": verdict.status in ("warn", "fail"),
         "predgate_status": verdict.status,
         "check_statuses": {c.name: c.status for c in checks},
-        "baseline_detected": baseline_detected,
-        "per_group_acc_detected": pg_acc_det,
-        "fixed_dp_detected": fixed_dp_det,
+        "baseline_detected": abs(champ_acc - cand_acc) > 0.01,
+        "per_group_acc_detected": per_group_accuracy_drop_baseline(
+            y_test.values, champ_preds, cand_preds, test_eval, ["region", "gender"]
+        ),
+        "fixed_dp_detected": fixed_dp_limit_baseline(
+            cand_preds, test_eval["gender"].values, dp_limit=0.10
+        ),
         "evidently_detected": evidently_det,
         "champion_acc": round(champ_acc, 4),
         "candidate_acc": round(cand_acc, 4),
     }
 
 
-# ── Suite 2: Public Fairness Validation ──
+# ── Unified per-(dataset, seed) worker running ALL 9 benign changes + ALL 7 faults ──
 
 
-def _evaluate_fairness_seed(
-    dataset_name: str,
-    train_df: pd.DataFrame,
-    test_df: pd.DataFrame,
-    target_col: str,
-    protected_col: str,
-    minority_value: str,
-    seed: int,
-) -> list[dict[str, Any]]:
-    X_clean = train_df.drop(columns=[target_col])
-    y_clean = train_df[target_col]
-    champion = _train_pipeline(X_clean, y_clean, seed=seed, variant="champion_gbdt")
-
-    X_test_base = test_df.drop(columns=[target_col])
-    y_test = test_df[target_col].values
-    prot_test = test_df[protected_col].values
-    champ_preds = champion.predict(X_test_base)
-    champ_acc = float(accuracy_score(y_test, champ_preds))
-    champ_dp = float(demographic_parity_diff(champ_preds, prot_test))
-
-    records: list[dict[str, Any]] = []
-    for fault, _ in PUBLIC_FAULTS:
-        rng = np.random.RandomState(seed)
-        train_mod = train_df.copy()
-        test_mod = test_df.copy()
-
-        if fault == "fairness_threshold_shift":
-            candidate: Any = GroupThresholdModel(
-                champion,
-                protected_col,
-                minority_value,
-                group_threshold=0.25,
-                default_threshold=0.50,
-            )
-        elif fault == "fairness_threshold_shift_hi":
-            candidate = GroupThresholdModel(
-                champion,
-                protected_col,
-                minority_value,
-                group_threshold=0.75,
-                default_threshold=0.50,
-            )
-        elif fault == "fairness_proxy_feature":
-            is_min_tr = (train_mod[protected_col].astype(str) == minority_value).astype(float)
-            train_mod["proxy_score"] = is_min_tr * 0.85 + rng.normal(0.0, 0.25, len(train_mod))
-            high_proxy_neg = train_mod[
-                (train_mod["proxy_score"] > 0.6) & (train_mod[target_col] == 0)
-            ]
-            if len(high_proxy_neg) > 0:
-                flip_idx = high_proxy_neg.sample(frac=0.35, random_state=seed).index
-                train_mod.loc[flip_idx, target_col] = 1
-            candidate = _train_pipeline(
-                train_mod.drop(columns=[target_col, protected_col]),
-                train_mod[target_col],
-                seed=seed,
-                variant="champion_gbdt",
-            )
-            test_rng = np.random.RandomState(seed + 1000)
-            is_min_te = (test_mod[protected_col].astype(str) == minority_value).astype(float)
-            test_mod["proxy_score"] = is_min_te * 0.85 + test_rng.normal(0.0, 0.25, len(test_mod))
-        elif fault == "fairness_regression":
-            min_neg = train_mod[
-                (train_mod[protected_col].astype(str) == minority_value)
-                & (train_mod[target_col] == 0)
-            ]
-            if len(min_neg) > 0:
-                flip_idx = min_neg.sample(frac=0.30, random_state=seed).index
-                train_mod.loc[flip_idx, target_col] = 1
-            candidate = _train_pipeline(
-                train_mod.drop(columns=[target_col]),
-                train_mod[target_col],
-                seed=seed,
-                variant="champion_gbdt",
-            )
-        elif fault == "noop":
-            candidate = _train_pipeline(X_clean, y_clean, seed=seed + 500, variant="champion_gbdt")
-        else:
-            raise ValueError(f"Unknown fault: {fault}")
-
-        X_test_eval = test_mod.drop(columns=[target_col])
-        cand_preds = candidate.predict(X_test_eval)
-        cand_acc = float(accuracy_score(y_test, cand_preds))
-        cand_dp = float(demographic_parity_diff(cand_preds, test_mod[protected_col].values))
-
-        res = run_fairness_check(
-            test_mod,
-            target_col,
-            candidate,
-            champion,
-            FairnessConfig(enabled=True, protected=[protected_col]),
-            seed=seed,
-        )
-        grp = res.details.get("groups", [{}])[0]
-        records.append(
-            {
-                "dataset": dataset_name,
-                "fault": fault,
-                "seed": seed,
-                "status": res.status,
-                "detected": res.status in ("warn", "fail"),
-                "is_fail": res.status == "fail",
-                "is_warn": res.status == "warn",
-                "baseline_detected": abs(champ_acc - cand_acc) > 0.01,
-                "per_group_acc_detected": per_group_accuracy_drop_baseline(
-                    y_test, champ_preds, cand_preds, test_mod, [protected_col]
-                ),
-                "fixed_dp_detected": fixed_dp_limit_baseline(
-                    cand_preds, test_mod[protected_col].values, dp_limit=0.10
-                ),
-                "champ_dp": round(champ_dp, 4),
-                "cand_dp": round(cand_dp, 4),
-                "min_group_n": int(grp.get("min_group_n", 0)),
-                "mde_dp": float(grp.get("min_detectable_gap_dp", 0.0)),
-                "mde_eo": float(grp.get("min_detectable_gap_eo", 0.0)),
-                "power_note_emitted": bool(res.details.get("power_notes")),
-            }
-        )
-    return records
-
-
-def _run_pub_fairness_seed(args: tuple[str, pd.DataFrame | None, int]) -> list[dict[str, Any]]:
+def _run_dataset_seed(args: tuple[str, pd.DataFrame | None, int]) -> dict[str, Any]:
+    """Reuse one champion per (dataset, seed) across all 9 benign changes and all 7 faults."""
     ds_name, full_df, seed = args
-    if ds_name == "UCI Adult":
-        assert full_df is not None
-        idx = np.random.RandomState(seed).choice(len(full_df), size=4500, replace=False)
-        return _evaluate_fairness_seed(
-            ds_name,
-            full_df.iloc[idx[:3000]].reset_index(drop=True),
-            full_df.iloc[idx[3000:]].reset_index(drop=True),
-            "target",
-            "sex",
-            "Female",
-            seed,
-        )
-    if ds_name == "German Credit":
-        assert full_df is not None
-        idx = np.random.RandomState(seed).permutation(len(full_df))
-        split = int(len(full_df) * 0.65)
-        return _evaluate_fairness_seed(
-            ds_name,
-            full_df.iloc[idx[:split]].reset_index(drop=True),
-            full_df.iloc[idx[split:]].reset_index(drop=True),
-            "target",
-            "sex",
-            "female",
-            seed,
-        )
-    train_df, test_df = _generate_data(seed=seed, n=3000)
-    return _evaluate_fairness_seed(
-        "Synthetic Credit", train_df, test_df, "default", "gender", "female", seed
-    )
-
-
-# ── Suite 3: Benign-Change Control (6 harmless retrains x 30 seeds x 3 datasets) ──
-
-
-def _run_benign_seed(args: tuple[str, pd.DataFrame | None, int]) -> list[dict[str, Any]]:
-    ds_name, full_df, seed = args
-    rng = np.random.RandomState(seed)
-
-    if ds_name == "UCI Adult":
-        assert full_df is not None
-        idx = rng.choice(len(full_df), size=5100, replace=False)
-        train_base = full_df.iloc[idx[:3000]].reset_index(drop=True)
-        train_more = full_df.iloc[idx[:3600]].reset_index(drop=True)
-        test_df = full_df.iloc[idx[3600:5100]].reset_index(drop=True)
-        target_col, protected_col, slice_cols = "target", "sex", ["sex", "race"]
-    elif ds_name == "German Credit":
-        assert full_df is not None
-        idx = rng.permutation(len(full_df))
-        train_base = full_df.iloc[idx[:550]].reset_index(drop=True)
-        train_more = full_df.iloc[idx[:660]].reset_index(drop=True)
-        test_df = full_df.iloc[idx[700:1000]].reset_index(drop=True)
-        target_col, protected_col, slice_cols = "target", "sex", ["sex", "housing"]
-    else:
-        train_more, test_df = _generate_data(seed=seed, n=3600)
-        train_base = train_more.iloc[:3000].reset_index(drop=True)
-        target_col, protected_col, slice_cols = "default", "gender", ["region", "gender"]
+    (
+        train_base,
+        train_more,
+        test_base,
+        target_col,
+        protected_col,
+        minority_value,
+        slice_cols,
+        null_col,
+    ) = _split_dataset(ds_name, full_df, seed)
 
     X_base = train_base.drop(columns=[target_col])
     y_base = train_base[target_col]
     champion = _train_pipeline(X_base, y_base, seed=seed, variant="champion_gbdt")
-    champ_preds = champion.predict(test_df.drop(columns=[target_col]))
-    y_test = test_df[target_col].values
+    champ_preds = champion.predict(test_base.drop(columns=[target_col]))
+    y_test = test_base[target_col].values
+    champ_acc = float(accuracy_score(y_test, champ_preds))
+    champ_dp = float(demographic_parity_diff(champ_preds, test_base[protected_col].values))
 
-    records: list[dict[str, Any]] = []
+    # For `drop_irrelevant_feature`: train a paired champion that has a pure noise column
+    nrng_drop = np.random.RandomState(seed + 888)
+    train_with_noise = train_base.copy()
+    test_with_noise = test_base.copy()
+    train_with_noise["irrelevant_noise_col"] = nrng_drop.normal(
+        0.0, 1.0, size=len(train_with_noise)
+    )
+    test_with_noise["irrelevant_noise_col"] = nrng_drop.normal(0.0, 1.0, size=len(test_with_noise))
+    champ_with_noise = _train_pipeline(
+        train_with_noise.drop(columns=[target_col]),
+        train_with_noise[target_col],
+        seed=seed,
+        variant="champion_gbdt",
+    )
+    champ_noise_preds = champ_with_noise.predict(test_with_noise.drop(columns=[target_col]))
+
+    # For `change_imputation`: introduce 5% MCAR NaNs on non-slice features so median vs mean+indicator genuinely differ
+    mrng_imp = np.random.RandomState(seed + 999)
+    train_miss = train_base.copy()
+    test_miss = test_base.copy()
+    protected_set = {target_col, protected_col, *slice_cols}
+    for col in train_miss.columns:
+        if col in protected_set:
+            continue
+        if pd.api.types.is_numeric_dtype(train_miss[col]):
+            train_miss[col] = train_miss[col].astype(float)
+            test_miss[col] = test_miss[col].astype(float)
+            m_tr = mrng_imp.rand(len(train_miss)) < 0.05
+            m_te = mrng_imp.rand(len(test_miss)) < 0.05
+            train_miss.loc[m_tr, col] = np.nan
+            test_miss.loc[m_te, col] = np.nan
+        else:
+            train_miss[col] = train_miss[col].astype(object)
+            test_miss[col] = test_miss[col].astype(object)
+            m_tr = mrng_imp.rand(len(train_miss)) < 0.05
+            m_te = mrng_imp.rand(len(test_miss)) < 0.05
+            train_miss.loc[m_tr, col] = None
+            test_miss.loc[m_te, col] = None
+    champ_impute = _train_pipeline(
+        train_miss.drop(columns=[target_col]),
+        train_miss[target_col],
+        seed=seed,
+        variant="champ_imputation",
+    )
+    champ_impute_preds = champ_impute.predict(test_miss.drop(columns=[target_col]))
+
+    # ── Part A: 9 Benign Changes ──
+    benign_recs: list[dict[str, Any]] = []
     for change in BENIGN_CHANGES:
+        ref_train_use = train_base
+        champ_use = champion
+        champ_preds_use = champ_preds
         train_cand = train_base.copy()
-        test_eval = test_df.copy()
+        test_eval = test_base.copy()
 
         if change in (
             "hyperparam_change",
             "algo_swap_rf",
             "algo_swap_logreg",
             "preprocessing_change",
+            "rescale_inputs",
         ):
             candidate = _train_pipeline(
                 train_cand.drop(columns=[target_col]),
                 train_cand[target_col],
                 seed=seed + 100,
                 variant=change,
+            )
+        elif change == "change_imputation":
+            ref_train_use = train_miss
+            champ_use = champ_impute
+            champ_preds_use = champ_impute_preds
+            train_cand = train_miss.copy()
+            test_eval = test_miss.copy()
+            candidate = _train_pipeline(
+                train_cand.drop(columns=[target_col]),
+                train_cand[target_col],
+                seed=seed + 100,
+                variant="change_imputation",
             )
         elif change == "more_data_20pct":
             train_cand = train_more.copy()
@@ -748,26 +754,48 @@ def _run_benign_seed(args: tuple[str, pd.DataFrame | None, int]) -> list[dict[st
                 seed=seed + 100,
                 variant="champion_gbdt",
             )
+        elif change == "drop_irrelevant_feature":
+            ref_train_use = train_with_noise
+            champ_use = champ_with_noise
+            champ_preds_use = champ_noise_preds
+            train_cand = train_base.copy()
+            test_eval = test_with_noise.copy()
+            # Candidate trained WITHOUT irrelevant_noise_col (ColumnTransformer drops it at predict time)
+            candidate = _train_pipeline(
+                train_cand.drop(columns=[target_col]),
+                train_cand[target_col],
+                seed=seed + 100,
+                variant="champion_gbdt",
+            )
         else:
             raise ValueError(f"Unknown benign change: {change}")
 
         cand_preds = candidate.predict(test_eval.drop(columns=[target_col]))
         verdict, check_results = _run_all_frozen_checks(
             train_cand,
-            train_base,
+            ref_train_use,
             test_eval,
             target_col,
             protected_col,
             slice_cols,
-            champion,
+            champ_use,
             candidate,
             seed=seed,
+            run_budgets=True,
         )
+        statuses = {cr.name: cr.status for cr in check_results}
+        fair_cr = next(cr for cr in check_results if cr.name == "fairness")
+
+        q_statuses = [statuses[c] for c in QUALITY_CHECKS]
+        q_fail = "fail" in q_statuses
+        q_warn_only = (not q_fail) and ("warn" in q_statuses)
+        lat_status = statuses.get("budgets", "pass")
+
         evidently_det = _run_evidently_eval(
-            train_base, train_cand, test_eval, target_col, champ_preds, cand_preds
+            ref_train_use, train_cand, test_eval, target_col, champ_preds_use, cand_preds
         )
 
-        records.append(
+        benign_recs.append(
             {
                 "dataset": ds_name,
                 "change": change,
@@ -776,9 +804,16 @@ def _run_benign_seed(args: tuple[str, pd.DataFrame | None, int]) -> list[dict[st
                 "is_fail": verdict.status == "fail",
                 "is_warn_only": verdict.status == "warn",
                 "is_flagged": verdict.status in ("warn", "fail"),
-                "check_statuses": {cr.name: cr.status for cr in check_results},
+                "quality_fail": q_fail,
+                "quality_warn_only": q_warn_only,
+                "quality_flagged": q_fail or q_warn_only,
+                "latency_fail": lat_status == "fail",
+                "latency_warn": lat_status == "warn",
+                "check_statuses": statuses,
+                "fairness_fail_metrics": fair_cr.details.get("triggered_fail_metrics", []),
+                "fairness_warn_metrics": fair_cr.details.get("triggered_warn_metrics", []),
                 "per_group_acc_detected": per_group_accuracy_drop_baseline(
-                    y_test, champ_preds, cand_preds, test_eval, slice_cols
+                    y_test, champ_preds_use, cand_preds, test_eval, slice_cols
                 ),
                 "fixed_dp_detected": fixed_dp_limit_baseline(
                     cand_preds, test_eval[protected_col].values, dp_limit=0.10
@@ -786,64 +821,29 @@ def _run_benign_seed(args: tuple[str, pd.DataFrame | None, int]) -> list[dict[st
                 "evidently_detected": evidently_det,
             }
         )
-    return records
 
-
-# ── Suite 4: Held-Out Validation (Bank Marketing & COMPAS + 2 new fault families) ──
-
-
-def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, Any]]:
-    ds_name, full_df, seed = args
-    rng = np.random.RandomState(seed)
-
-    if ds_name == "Bank Marketing":
-        idx = rng.choice(len(full_df), size=4500, replace=False)
-        train_base = full_df.iloc[idx[:3000]].reset_index(drop=True)
-        test_base = full_df.iloc[idx[3000:]].reset_index(drop=True)
-        target_col = "target"
-        protected_col = "marital"
-        minority_value = "divorced"
-        slice_cols = ["marital", "education"]
-        null_col = "duration"
-    else:  # COMPAS
-        idx = rng.permutation(len(full_df))
-        train_base = full_df.iloc[idx[:3500]].reset_index(drop=True)
-        test_base = full_df.iloc[idx[3500:5000]].reset_index(drop=True)
-        target_col = "target"
-        protected_col = "race"
-        minority_value = "Caucasian"
-        slice_cols = ["race", "sex"]
-        null_col = "priors_count"
-
-    X_base = train_base.drop(columns=[target_col])
-    y_base = train_base[target_col]
-    champion = _train_pipeline(X_base, y_base, seed=seed, variant="champion_gbdt")
-    champ_preds = champion.predict(test_base.drop(columns=[target_col]))
-    y_test = test_base[target_col].values
-    champ_acc = float(accuracy_score(y_test, champ_preds))
-    champ_dp = float(demographic_parity_diff(champ_preds, test_base[protected_col].values))
-
+    # ── Part B: All 7 Fault Conditions on This Dataset ──
     num_cols = X_base.select_dtypes(include=[np.number]).columns.tolist()
     numeric_stds = {c: float(X_base[c].std()) for c in num_cols}
 
-    records: list[dict[str, Any]] = []
-    for fault, _ in HELD_OUT_FAULTS:
+    fault_recs: list[dict[str, Any]] = []
+    pub_fair_recs: list[dict[str, Any]] = []
+
+    for fault, _ in ALL_DATASET_FAULTS:
         frng = np.random.RandomState(seed)
         train_mod = train_base.copy()
         test_mod = test_base.copy()
 
         if fault == "silent_null_imputation":
-            # New fault #1: upstream ETL silently replaces 40% of primary numeric feature values with 0.0
             corrupt_idx = train_mod.sample(frac=0.40, random_state=seed).index
             train_mod.loc[corrupt_idx, null_col] = 0.0
-            candidate: Any = _train_pipeline(
+            candidate = _train_pipeline(
                 train_mod.drop(columns=[target_col]),
                 train_mod[target_col],
                 seed=seed,
                 variant="champion_gbdt",
             )
         elif fault == "cohort_feature_corruption":
-            # New fault #2: clean training data, but serving/preprocessing bug injects 2σ noise on one cohort
             base_cand = _train_pipeline(
                 train_mod.drop(columns=[target_col]),
                 train_mod[target_col],
@@ -863,6 +863,14 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
                 protected_col,
                 minority_value,
                 group_threshold=0.25,
+                default_threshold=0.50,
+            )
+        elif fault == "fairness_threshold_shift_hi":
+            candidate = GroupThresholdModel(
+                champion,
+                protected_col,
+                minority_value,
+                group_threshold=0.75,
                 default_threshold=0.50,
             )
         elif fault == "fairness_proxy_feature":
@@ -900,12 +908,13 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
         elif fault == "noop":
             candidate = _train_pipeline(X_base, y_base, seed=seed + 500, variant="champion_gbdt")
         else:
-            raise ValueError(f"Unknown held-out fault: {fault}")
+            raise ValueError(f"Unknown fault: {fault}")
 
         cand_preds = candidate.predict(test_mod.drop(columns=[target_col]))
         cand_acc = float(accuracy_score(y_test, cand_preds))
         cand_dp = float(demographic_parity_diff(cand_preds, test_mod[protected_col].values))
 
+        # Run full quality gate checks (skip redundant budgets on non-latency faults to save CPU; budgets tested on all 9 benign + latency_regression + noop)
         verdict, check_results = _run_all_frozen_checks(
             train_mod,
             train_base,
@@ -916,6 +925,7 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
             champion,
             candidate,
             seed=seed,
+            run_budgets=(fault == "noop"),
         )
         fair_cr = next(c for c in check_results if c.name == "fairness")
         grp = fair_cr.details.get("groups", [{}])[0]
@@ -923,7 +933,13 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
             train_base, train_mod, test_mod, target_col, champ_preds, cand_preds
         )
 
-        records.append(
+        bl_det = abs(champ_acc - cand_acc) > 0.01
+        pga_det = per_group_accuracy_drop_baseline(
+            y_test, champ_preds, cand_preds, test_mod, slice_cols
+        )
+        dp_det = fixed_dp_limit_baseline(cand_preds, test_mod[protected_col].values, dp_limit=0.10)
+
+        fault_recs.append(
             {
                 "dataset": ds_name,
                 "fault": fault,
@@ -933,13 +949,9 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
                 "is_warn": verdict.status == "warn",
                 "detected": verdict.status in ("warn", "fail"),
                 "check_statuses": {c.name: c.status for c in check_results},
-                "baseline_detected": abs(champ_acc - cand_acc) > 0.01,
-                "per_group_acc_detected": per_group_accuracy_drop_baseline(
-                    y_test, champ_preds, cand_preds, test_mod, slice_cols
-                ),
-                "fixed_dp_detected": fixed_dp_limit_baseline(
-                    cand_preds, test_mod[protected_col].values, dp_limit=0.10
-                ),
+                "baseline_detected": bl_det,
+                "per_group_acc_detected": pga_det,
+                "fixed_dp_detected": dp_det,
                 "evidently_detected": evidently_det,
                 "champ_dp": round(champ_dp, 4),
                 "cand_dp": round(cand_dp, 4),
@@ -949,7 +961,36 @@ def _run_held_out_seed(args: tuple[str, pd.DataFrame, int]) -> list[dict[str, An
                 "power_note_emitted": bool(fair_cr.details.get("power_notes")),
             }
         )
-    return records
+
+        if fault in {f for f, _ in PUBLIC_FAULTS}:
+            pub_fair_recs.append(
+                {
+                    "dataset": ds_name,
+                    "fault": fault,
+                    "seed": seed,
+                    "status": fair_cr.status,
+                    "detected": fair_cr.status in ("warn", "fail"),
+                    "is_fail": fair_cr.status == "fail",
+                    "is_warn": fair_cr.status == "warn",
+                    "baseline_detected": bl_det,
+                    "per_group_acc_detected": per_group_accuracy_drop_baseline(
+                        y_test, champ_preds, cand_preds, test_mod, [protected_col]
+                    ),
+                    "fixed_dp_detected": dp_det,
+                    "champ_dp": round(champ_dp, 4),
+                    "cand_dp": round(cand_dp, 4),
+                    "min_group_n": int(grp.get("min_group_n", 0)),
+                    "mde_dp": float(grp.get("min_detectable_gap_dp", 0.0)),
+                    "mde_eo": float(grp.get("min_detectable_gap_eo", 0.0)),
+                    "power_note_emitted": bool(fair_cr.details.get("power_notes")),
+                }
+            )
+
+    return {
+        "benign": benign_recs,
+        "faults": fault_recs,
+        "pub_fairness": pub_fair_recs,
+    }
 
 
 def _agg_rate(k: int, n: int) -> tuple[float, list[float]]:
@@ -959,12 +1000,11 @@ def _agg_rate(k: int, n: int) -> tuple[float, list[float]]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run full reproducible PredGate benchmark suites.")
+    parser = argparse.ArgumentParser(
+        description="Run fresh-seed PredGate evaluation across all 5 datasets, 9 benign changes, and all fault families."
+    )
     parser.add_argument("--n-seeds", type=int, default=30)
-    parser.add_argument("--synth-start-seed", type=int, default=1000)
-    parser.add_argument("--fairness-start-seed", type=int, default=5000)
-    parser.add_argument("--benign-start-seed", type=int, default=6000)
-    parser.add_argument("--heldout-start-seed", type=int, default=7000)
+    parser.add_argument("--start-seed", type=int, default=9000)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument(
         "--evidently-python",
@@ -979,6 +1019,7 @@ def main() -> None:
 
     t0 = time.time()
     commit_hash = _get_git_commit()
+    seeds = [args.start_seed + i for i in range(args.n_seeds)]
     ev_py = (
         args.evidently_python
         if (args.evidently_python and Path(args.evidently_python).exists())
@@ -1004,12 +1045,7 @@ def main() -> None:
         }
         print(f"Evidently comparator enabled: {v_meta}")
     else:
-        print("Evidently comparator disabled (interpreter not found).")
-
-    synth_seeds = [args.synth_start_seed + i for i in range(args.n_seeds)]
-    fairness_seeds = [args.fairness_start_seed + i for i in range(args.n_seeds)]
-    benign_seeds = [args.benign_start_seed + i for i in range(args.n_seeds)]
-    heldout_seeds = [args.heldout_start_seed + i for i in range(args.n_seeds)]
+        print("Evidently comparator disabled.")
 
     frozen_cfg = FairnessConfig(enabled=True, protected=["sex"])
     frozen_summary = {
@@ -1022,69 +1058,46 @@ def main() -> None:
         "selection_rate_n_bootstrap": frozen_cfg.selection_rate_n_bootstrap,
     }
 
-    print("[1/5] Loading OpenML datasets (Adult, German Credit, Bank Marketing, COMPAS)...")
-    adult_df = _load_adult_frame()
-    german_df = _load_german_frame()
-    bank_df = _load_bank_marketing_frame()
-    compas_df = _load_compas_frame()
-    print(
-        f"      Adult {adult_df.shape}, German {german_df.shape}, "
-        f"Bank {bank_df.shape}, COMPAS {compas_df.shape}"
-    )
+    print("[1/3] Loading all 4 OpenML datasets (Adult, German Credit, Bank Marketing, COMPAS)...")
+    ds_frames: dict[str, pd.DataFrame | None] = {
+        "UCI Adult": _load_adult_frame(),
+        "German Credit": _load_german_frame(),
+        "Synthetic Credit": None,
+        "Bank Marketing": _load_bank_marketing_frame(),
+        "COMPAS": _load_compas_frame(),
+    }
 
     with ProcessPoolExecutor(
         max_workers=args.workers,
-        initializer=_init_evidently_worker,
+        initializer=_init_worker,
         initargs=(ev_py,),
     ) as pool:
-        # ── Suite 1: Synthetic 7-fault ──
-        print(
-            f"[2/5] Running Synthetic 7-fault suite (seeds {synth_seeds[0]}..{synth_seeds[-1]})..."
-        )
+        print(f"[2/3] Running Synthetic 7-fault suite (fresh seeds {seeds[0]}..{seeds[-1]})...")
         synth_records = list(
-            pool.map(
-                _run_synth_7fault_trial, [(f, s) for f in SYNTHETIC_FAULTS for s in synth_seeds]
-            )
+            pool.map(_run_synth_7fault_trial, [(f, s) for f in SYNTHETIC_FAULTS for s in seeds])
         )
 
-        # ── Suite 2: Public Fairness Validation ──
         print(
-            f"[3/5] Running Public Fairness suite (seeds {fairness_seeds[0]}..{fairness_seeds[-1]})..."
+            f"[3/3] Running ALL 9 benign changes + ALL 7 fault families across ALL 5 datasets "
+            f"(fresh seeds {seeds[0]}..{seeds[-1]})..."
         )
-        pub_records: list[dict[str, Any]] = []
-        pub_tasks: list[tuple[str, pd.DataFrame | None, int]] = (
-            [("UCI Adult", adult_df, s) for s in fairness_seeds]
-            + [("German Credit", german_df, s) for s in fairness_seeds]
-            + [("Synthetic Credit", None, s) for s in fairness_seeds]
-        )
-        for batch in pool.map(_run_pub_fairness_seed, pub_tasks):
-            pub_records.extend(batch)
-
-        # ── Suite 3: Benign-Change Control ──
-        print(
-            f"[4/5] Running Benign-Change Control (6 changes x {args.n_seeds} seeds x 3 datasets, seeds {benign_seeds[0]}..{benign_seeds[-1]})..."
-        )
+        ds_tasks: list[tuple[str, pd.DataFrame | None, int]] = [
+            (ds_name, ds_frames[ds_name], s) for ds_name in ALL_DATASETS for s in seeds
+        ]
         benign_records: list[dict[str, Any]] = []
-        benign_tasks: list[tuple[str, pd.DataFrame | None, int]] = (
-            [("UCI Adult", adult_df, s) for s in benign_seeds]
-            + [("German Credit", german_df, s) for s in benign_seeds]
-            + [("Synthetic Credit", None, s) for s in benign_seeds]
-        )
-        for batch in pool.map(_run_benign_seed, benign_tasks):
-            benign_records.extend(batch)
+        fault_records: list[dict[str, Any]] = []
+        pub_fair_records: list[dict[str, Any]] = []
+        for idx_done, out in enumerate(pool.map(_run_dataset_seed, ds_tasks), start=1):
+            benign_records.extend(out["benign"])
+            fault_records.extend(out["faults"])
+            pub_fair_records.extend(out["pub_fairness"])
+            if idx_done % 15 == 0 or idx_done == len(ds_tasks):
+                print(
+                    f"  progress: {idx_done}/{len(ds_tasks)} dataset-seeds ({time.time() - t0:.1f}s)",
+                    flush=True,
+                )
 
-        # ── Suite 4: Held-Out Validation ──
-        print(
-            f"[5/5] Running Held-Out Validation (Bank Marketing & COMPAS, seeds {heldout_seeds[0]}..{heldout_seeds[-1]})..."
-        )
-        heldout_records: list[dict[str, Any]] = []
-        heldout_tasks: list[tuple[str, pd.DataFrame, int]] = [
-            ("Bank Marketing", bank_df, s) for s in heldout_seeds
-        ] + [("COMPAS", compas_df, s) for s in heldout_seeds]
-        for batch in pool.map(_run_held_out_seed, heldout_tasks):
-            heldout_records.extend(batch)
-
-    # ── Aggregate Suite 1 ──
+    # ── Aggregate Suite 1: Synthetic 7-Fault ──
     synth_summary: dict[str, dict[str, Any]] = {}
     for fault in SYNTHETIC_FAULTS:
         rows = [r for r in synth_records if r["fault_type"] == fault]
@@ -1100,8 +1113,6 @@ def main() -> None:
         bl_r, bl_ci = _agg_rate(bl_det, n)
         pga_r, pga_ci = _agg_rate(pg_acc_det, n)
         dp_r, dp_ci = _agg_rate(dp_det, n)
-        ci_overlap = (det_ci[0] <= bl_ci[1]) and (bl_ci[0] <= det_ci[1])
-
         entry: dict[str, Any] = {
             "description": FAULT_DESCRIPTIONS[fault],
             "n_trials": n,
@@ -1121,7 +1132,7 @@ def main() -> None:
             "per_group_acc_ci_95": pga_ci,
             "fixed_dp_rate": dp_r,
             "fixed_dp_ci_95": dp_ci,
-            "ci_95_overlap": ci_overlap,
+            "ci_95_overlap": (det_ci[0] <= bl_ci[1]) and (bl_ci[0] <= det_ci[1]),
             "predgate_wins": (det_ci[0] > bl_ci[1]) if fault != "noop" else (det_ci[1] < bl_ci[0]),
         }
         if ev_py is not None:
@@ -1137,70 +1148,29 @@ def main() -> None:
             + (f" | Evid {entry['evidently_detected']:2d}/{n}" if ev_py else "")
         )
 
-    # ── Aggregate Suite 2 ──
-    pub_rows: list[dict[str, Any]] = []
-    for ds_name in ("UCI Adult", "German Credit", "Synthetic Credit"):
-        for fault, flt_label in PUBLIC_FAULTS:
-            sub = [r for r in pub_records if r["dataset"] == ds_name and r["fault"] == fault]
-            n = len(sub)
-            det = sum(1 for r in sub if r["detected"])
-            det_f = sum(1 for r in sub if r["is_fail"])
-            det_w = sum(1 for r in sub if r["is_warn"])
-            bl_d = sum(1 for r in sub if r["baseline_detected"])
-            pga_d = sum(1 for r in sub if r["per_group_acc_detected"])
-            dp_d = sum(1 for r in sub if r["fixed_dp_detected"])
-
-            fail_r, fail_ci = _agg_rate(det_f, n)
-            det_r, det_ci = _agg_rate(det, n)
-            bl_r, bl_ci = _agg_rate(bl_d, n)
-            pga_r, pga_ci = _agg_rate(pga_d, n)
-            dp_r, dp_ci = _agg_rate(dp_d, n)
-            pub_rows.append(
-                {
-                    "dataset": ds_name,
-                    "fault": fault,
-                    "fault_label": flt_label,
-                    "n_trials": n,
-                    "detected_fail": det_f,
-                    "detected_warn": det_w,
-                    "detected_total": det,
-                    "fail_rate": fail_r,
-                    "fail_ci_95": fail_ci,
-                    "detection_rate": det_r,
-                    "ci_95": det_ci,
-                    "baseline_detected": bl_d,
-                    "baseline_rate": bl_r,
-                    "baseline_ci_95": bl_ci,
-                    "per_group_acc_detected": pga_d,
-                    "per_group_acc_rate": pga_r,
-                    "per_group_acc_ci_95": pga_ci,
-                    "fixed_dp_detected": dp_d,
-                    "fixed_dp_rate": dp_r,
-                    "fixed_dp_ci_95": dp_ci,
-                    "mean_champ_dp": round(float(np.mean([r["champ_dp"] for r in sub])), 3),
-                    "mean_cand_dp": round(float(np.mean([r["cand_dp"] for r in sub])), 3),
-                    "mean_min_n": round(float(np.mean([r["min_group_n"] for r in sub])), 1),
-                    "mean_mde_dp": round(float(np.mean([r["mde_dp"] for r in sub])), 3),
-                    "mean_mde_eo": round(float(np.mean([r["mde_eo"] for r in sub])), 3),
-                    "power_note_count": sum(1 for r in sub if r["power_note_emitted"]),
-                }
-            )
-
-    # ── Aggregate Suite 3: Benign-Change Control ──
+    # ── Aggregate Suite 2: Benign-Change Control (Quality vs Latency Separated) ──
     benign_rows: list[dict[str, Any]] = []
-    for ds_name in ("UCI Adult", "German Credit", "Synthetic Credit"):
+    for ds_name in ALL_DATASETS:
         for chg in BENIGN_CHANGES:
             sub = [r for r in benign_records if r["dataset"] == ds_name and r["change"] == chg]
             n = len(sub)
             f_cnt = sum(1 for r in sub if r["is_fail"])
             w_cnt = sum(1 for r in sub if r["is_warn_only"])
             fl_cnt = sum(1 for r in sub if r["is_flagged"])
+            qf_cnt = sum(1 for r in sub if r["quality_fail"])
+            qw_cnt = sum(1 for r in sub if r["quality_warn_only"])
+            lf_cnt = sum(1 for r in sub if r["latency_fail"])
+            lw_cnt = sum(1 for r in sub if r["latency_warn"])
             pga_d = sum(1 for r in sub if r["per_group_acc_detected"])
             dp_d = sum(1 for r in sub if r["fixed_dp_detected"])
 
             f_r, f_ci = _agg_rate(f_cnt, n)
             w_r, w_ci = _agg_rate(w_cnt, n)
             fl_r, fl_ci = _agg_rate(fl_cnt, n)
+            qf_r, qf_ci = _agg_rate(qf_cnt, n)
+            qw_r, qw_ci = _agg_rate(qw_cnt, n)
+            lf_r, lf_ci = _agg_rate(lf_cnt, n)
+            lw_r, lw_ci = _agg_rate(lw_cnt, n)
             pga_r, pga_ci = _agg_rate(pga_d, n)
             dp_r, dp_ci = _agg_rate(dp_d, n)
 
@@ -1217,6 +1187,18 @@ def main() -> None:
                 "flagged_count": fl_cnt,
                 "flagged_rate": fl_r,
                 "flagged_ci_95": fl_ci,
+                "quality_fail_count": qf_cnt,
+                "quality_fail_rate": qf_r,
+                "quality_fail_ci_95": qf_ci,
+                "quality_warn_only_count": qw_cnt,
+                "quality_warn_only_rate": qw_r,
+                "quality_warn_only_ci_95": qw_ci,
+                "latency_fail_count": lf_cnt,
+                "latency_fail_rate": lf_r,
+                "latency_fail_ci_95": lf_ci,
+                "latency_warn_count": lw_cnt,
+                "latency_warn_rate": lw_r,
+                "latency_warn_ci_95": lw_ci,
                 "per_group_acc_detected": pga_d,
                 "per_group_acc_rate": pga_r,
                 "per_group_acc_ci_95": pga_ci,
@@ -1232,8 +1214,8 @@ def main() -> None:
                 b_entry["evidently_ci_95"] = ev_ci
             benign_rows.append(b_entry)
             print(
-                f"  BENIGN {ds_name:16s} | {chg:20s}: FAIL {f_cnt:2d}/{n} | WARN-only {w_cnt:2d}/{n} | "
-                f"Flag {fl_cnt:2d}/{n} | GrpAcc {pga_d:2d}/{n} | FixDP {dp_d:2d}/{n}"
+                f"  BENIGN {ds_name:16s} | {chg:23s}: Q_FAIL {qf_cnt:2d}/{n} | Q_WARN {qw_cnt:2d}/{n} | "
+                f"LAT_FAIL {lf_cnt:2d}/{n} | GrpAcc {pga_d:2d}/{n} | FixDP {dp_d:2d}/{n}"
                 + (f" | Evid {b_entry['evidently_detected']:2d}/{n}" if ev_py else "")
             )
 
@@ -1241,12 +1223,21 @@ def main() -> None:
     ov_f = sum(1 for r in benign_records if r["is_fail"])
     ov_w = sum(1 for r in benign_records if r["is_warn_only"])
     ov_fl = sum(1 for r in benign_records if r["is_flagged"])
+    ov_qf = sum(1 for r in benign_records if r["quality_fail"])
+    ov_qw = sum(1 for r in benign_records if r["quality_warn_only"])
+    ov_lf = sum(1 for r in benign_records if r["latency_fail"])
+    ov_lw = sum(1 for r in benign_records if r["latency_warn"])
+
     ov_f_r, ov_f_ci = _agg_rate(ov_f, n_b_tot)
     ov_w_r, ov_w_ci = _agg_rate(ov_w, n_b_tot)
     ov_fl_r, ov_fl_ci = _agg_rate(ov_fl, n_b_tot)
+    ov_qf_r, ov_qf_ci = _agg_rate(ov_qf, n_b_tot)
+    ov_qw_r, ov_qw_ci = _agg_rate(ov_qw, n_b_tot)
+    ov_lf_r, ov_lf_ci = _agg_rate(ov_lf, n_b_tot)
+    ov_lw_r, ov_lw_ci = _agg_rate(ov_lw, n_b_tot)
 
     per_check_benign: list[dict[str, Any]] = []
-    for chk in BENIGN_CHECKS:
+    for chk in ALL_CHECKS:
         cf = sum(1 for r in benign_records if r["check_statuses"].get(chk) == "fail")
         cw = sum(1 for r in benign_records if r["check_statuses"].get(chk) == "warn")
         cfl = cf + cw
@@ -1269,15 +1260,36 @@ def main() -> None:
             }
         )
         print(
-            f"  BENIGN CHECK {chk:12s}: FAIL {cf:3d}/{n_b_tot} ({cf_r:.1%}) | "
-            f"WARN {cw:3d}/{n_b_tot} ({cw_r:.1%})"
+            f"  BENIGN CHECK {chk:12s}: FAIL {cf:4d}/{n_b_tot} ({cf_r:.1%}) | "
+            f"WARN {cw:4d}/{n_b_tot} ({cw_r:.1%})"
         )
 
-    # ── Aggregate Suite 4: Held-Out Validation ──
-    heldout_rows: list[dict[str, Any]] = []
-    for ds_name in ("Bank Marketing", "COMPAS"):
-        for fault, flt_label in HELD_OUT_FAULTS:
-            sub = [r for r in heldout_records if r["dataset"] == ds_name and r["fault"] == fault]
+    algo_swaps = [r for r in benign_records if r["change"] in ("algo_swap_rf", "algo_swap_logreg")]
+    algo_fair_fail_ctr = Counter(
+        m
+        for r in algo_swaps
+        if r["check_statuses"].get("fairness") == "fail"
+        for m in r["fairness_fail_metrics"]
+    )
+    algo_fair_warn_ctr = Counter(
+        m
+        for r in algo_swaps
+        if r["check_statuses"].get("fairness") == "warn"
+        for m in r["fairness_warn_metrics"]
+    )
+    algo_swap_fairness_metrics = {
+        "n_trials": len(algo_swaps),
+        "n_fail": sum(1 for r in algo_swaps if r["check_statuses"].get("fairness") == "fail"),
+        "n_warn": sum(1 for r in algo_swaps if r["check_statuses"].get("fairness") == "warn"),
+        "fail_metrics": dict(algo_fair_fail_ctr),
+        "warn_metrics": dict(algo_fair_warn_ctr),
+    }
+
+    # ── Aggregate Suite 3: All 5 Datasets x All 7 Faults ──
+    all_fault_rows: list[dict[str, Any]] = []
+    for ds_name in ALL_DATASETS:
+        for fault, flt_label in ALL_DATASET_FAULTS:
+            sub = [r for r in fault_records if r["dataset"] == ds_name and r["fault"] == fault]
             n = len(sub)
             det_f = sum(1 for r in sub if r["is_fail"])
             det_w = sum(1 for r in sub if r["is_warn"])
@@ -1325,57 +1337,100 @@ def main() -> None:
                 h_entry["evidently_detected"] = ev_d
                 h_entry["evidently_rate"] = ev_r
                 h_entry["evidently_ci_95"] = ev_ci
-            heldout_rows.append(h_entry)
+            all_fault_rows.append(h_entry)
             print(
-                f"  HELDOUT {ds_name:14s} | {fault:25s}: FAIL {det_f:2d}/{n} | Flag {det:2d}/{n} | "
+                f"  FAULT  {ds_name:16s} | {fault:27s}: FAIL {det_f:2d}/{n} | Flag {det:2d}/{n} | "
                 f"Acc {bl_d:2d}/{n} | GrpAcc {pga_d:2d}/{n} | FixDP {dp_d:2d}/{n}"
                 + (f" | Evid {h_entry['evidently_detected']:2d}/{n}" if ev_py else "")
             )
 
+    # ── Aggregate Suite 4: Standalone Fairness Check Across All 5 Datasets ──
+    pub_rows: list[dict[str, Any]] = []
+    for ds_name in ALL_DATASETS:
+        for fault, flt_label in PUBLIC_FAULTS:
+            sub = [r for r in pub_fair_records if r["dataset"] == ds_name and r["fault"] == fault]
+            n = len(sub)
+            det = sum(1 for r in sub if r["detected"])
+            det_f = sum(1 for r in sub if r["is_fail"])
+            det_w = sum(1 for r in sub if r["is_warn"])
+            bl_d = sum(1 for r in sub if r["baseline_detected"])
+            pga_d = sum(1 for r in sub if r["per_group_acc_detected"])
+            dp_d = sum(1 for r in sub if r["fixed_dp_detected"])
+
+            fail_r, fail_ci = _agg_rate(det_f, n)
+            det_r, det_ci = _agg_rate(det, n)
+            bl_r, bl_ci = _agg_rate(bl_d, n)
+            pga_r, pga_ci = _agg_rate(pga_d, n)
+            dp_r, dp_ci = _agg_rate(dp_d, n)
+            pub_rows.append(
+                {
+                    "dataset": ds_name,
+                    "fault": fault,
+                    "fault_label": flt_label,
+                    "n_trials": n,
+                    "detected_fail": det_f,
+                    "detected_warn": det_w,
+                    "detected_total": det,
+                    "fail_rate": fail_r,
+                    "fail_ci_95": fail_ci,
+                    "detection_rate": det_r,
+                    "ci_95": det_ci,
+                    "baseline_detected": bl_d,
+                    "baseline_rate": bl_r,
+                    "baseline_ci_95": bl_ci,
+                    "per_group_acc_detected": pga_d,
+                    "per_group_acc_rate": pga_r,
+                    "per_group_acc_ci_95": pga_ci,
+                    "fixed_dp_detected": dp_d,
+                    "fixed_dp_rate": dp_r,
+                    "fixed_dp_ci_95": dp_ci,
+                    "mean_champ_dp": round(float(np.mean([r["champ_dp"] for r in sub])), 3),
+                    "mean_cand_dp": round(float(np.mean([r["cand_dp"] for r in sub])), 3),
+                    "mean_min_n": round(float(np.mean([r["min_group_n"] for r in sub])), 1),
+                    "mean_mde_dp": round(float(np.mean([r["mde_dp"] for r in sub])), 3),
+                    "mean_mde_eo": round(float(np.mean([r["mde_eo"] for r in sub])), 3),
+                    "power_note_count": sum(1 for r in sub if r["power_note_emitted"]),
+                }
+            )
+
     # ── Write aggregate-only repo JSON + per-seed release artifact ──
+    cmd_str = (
+        f"python scripts/bench_public.py --n-seeds {args.n_seeds} --start-seed {args.start_seed}"
+    )
     per_seed_path = args.artifact_dir / f"benchmark_per_seed_{commit_hash}.json"
     per_seed_path.parent.mkdir(parents=True, exist_ok=True)
-    per_seed_payload = {
-        "commit_hash": commit_hash,
-        "command": (
-            f"python scripts/bench_public.py --n-seeds {args.n_seeds} "
-            f"--synth-start-seed {args.synth_start_seed} "
-            f"--fairness-start-seed {args.fairness_start_seed} "
-            f"--benign-start-seed {args.benign_start_seed} "
-            f"--heldout-start-seed {args.heldout_start_seed}"
-        ),
-        "synthetic_details": synth_records,
-        "public_fairness_details": pub_records,
-        "benign_change_details": benign_records,
-        "held_out_details": heldout_records,
-    }
-    per_seed_path.write_text(json.dumps(per_seed_payload, indent=2) + "\n")
+    per_seed_path.write_text(
+        json.dumps(
+            {
+                "commit_hash": commit_hash,
+                "command": cmd_str,
+                "seeds": seeds,
+                "synthetic_details": synth_records,
+                "benign_change_details": benign_records,
+                "all_dataset_fault_details": fault_records,
+                "public_fairness_details": pub_fair_records,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     aggregate_payload: dict[str, Any] = {
-        "command": per_seed_payload["command"],
+        "command": cmd_str,
         "commit_hash": commit_hash,
         "n_seeds": args.n_seeds,
-        "seed_range": f"{synth_seeds[0]}..{synth_seeds[-1]}",
-        "seeds": synth_seeds,
+        "seed_range": f"{seeds[0]}..{seeds[-1]}",
+        "seeds": seeds,
         "per_seed_artifact": str(per_seed_path),
         "comparator_config": comparator_config,
         "summary": synth_summary,
-        "public_fairness_benchmark": {
-            "command": f"python scripts/bench_public.py --n-seeds {args.n_seeds} --fairness-start-seed {args.fairness_start_seed}",
-            "commit_hash": commit_hash,
-            "n_seeds": args.n_seeds,
-            "seed_range": f"{fairness_seeds[0]}..{fairness_seeds[-1]}",
-            "seeds": fairness_seeds,
-            "frozen_settings": frozen_summary,
-            "rows": pub_rows,
-        },
         "benign_change_control": {
             "commit_hash": commit_hash,
             "n_seeds": args.n_seeds,
-            "seed_range": f"{benign_seeds[0]}..{benign_seeds[-1]}",
-            "seeds": benign_seeds,
+            "seed_range": f"{seeds[0]}..{seeds[-1]}",
+            "seeds": seeds,
             "changes": BENIGN_CHANGES,
-            "checks": BENIGN_CHECKS,
+            "checks": ALL_CHECKS,
             "overall": {
                 "n_trials": n_b_tot,
                 "fail_count": ov_f,
@@ -1387,18 +1442,39 @@ def main() -> None:
                 "flagged_count": ov_fl,
                 "flagged_rate": ov_fl_r,
                 "flagged_ci_95": ov_fl_ci,
+                "quality_fail_count": ov_qf,
+                "quality_fail_rate": ov_qf_r,
+                "quality_fail_ci_95": ov_qf_ci,
+                "quality_warn_only_count": ov_qw,
+                "quality_warn_only_rate": ov_qw_r,
+                "quality_warn_only_ci_95": ov_qw_ci,
+                "latency_fail_count": ov_lf,
+                "latency_fail_rate": ov_lf_r,
+                "latency_fail_ci_95": ov_lf_ci,
+                "latency_warn_count": ov_lw,
+                "latency_warn_rate": ov_lw_r,
+                "latency_warn_ci_95": ov_lw_ci,
             },
             "rows": benign_rows,
             "per_check": per_check_benign,
+            "algo_swap_fairness_metrics": algo_swap_fairness_metrics,
         },
         "held_out_validation": {
             "commit_hash": commit_hash,
             "n_seeds": args.n_seeds,
-            "seed_range": f"{heldout_seeds[0]}..{heldout_seeds[-1]}",
-            "seeds": heldout_seeds,
-            "datasets": ["Bank Marketing (OpenML 1461)", "COMPAS (OpenML 42192)"],
-            "new_fault_families": ["silent_null_imputation", "cohort_feature_corruption"],
-            "rows": heldout_rows,
+            "seed_range": f"{seeds[0]}..{seeds[-1]}",
+            "seeds": seeds,
+            "datasets": ALL_DATASETS,
+            "rows": all_fault_rows,
+        },
+        "public_fairness_benchmark": {
+            "command": cmd_str,
+            "commit_hash": commit_hash,
+            "n_seeds": args.n_seeds,
+            "seed_range": f"{seeds[0]}..{seeds[-1]}",
+            "seeds": seeds,
+            "frozen_settings": frozen_summary,
+            "rows": pub_rows,
         },
     }
 

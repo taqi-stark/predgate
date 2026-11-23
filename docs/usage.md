@@ -91,20 +91,24 @@ data_contract:
   enabled: true
   schema_path: "demo/contracts/schema.py"
 
-# Drift detection on features & target
+# Drift detection on shared features (reference-quantile PSI + KS + numeric point-mass spike check)
 drift:
   enabled: true
   method: "psi"               # psi, ks, or wasserstein
   warn_at: 0.10
   fail_at: 0.25
+  on_new_feature: "info"      # "info" or "warn" for features absent from reference
+  point_mass_warn_delta: 0.10 # WARN on exact numeric value-spike jump >= +10 pp
+  point_mass_fail_delta: 0.20 # FAIL on exact numeric value-spike jump >= +20 pp
 
-# Performance slices with bootstrap confidence intervals
+# Performance slices with paired bootstrap confidence intervals (FAIL iff ci_lower > max_drop; WARN iff diff > max_drop)
 slices:
   enabled: true
   metric: "f1"
   by: ["region", "gender"]
   min_slice_size: 20
   max_drop: 0.03
+  max_ci_width: 0.10          # mark wider intervals as "inconclusive" in reports
   confidence: 0.95
   n_bootstrap: 50
 

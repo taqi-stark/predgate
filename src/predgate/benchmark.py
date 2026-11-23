@@ -793,7 +793,7 @@ def generate_benchmark_markdown_from_json(
             row_cells.append(_fmt_rate_ci(ev_k, n, ev_r, ev_ci, suf))
         lines.append("| " + " | ".join(row_cells) + " |")
 
-    # ── 2. Benign-Change Control (Alert Fatigue & Hard-Fail FP) ──
+    # ── 2. Benign-Change Control (Quality vs Latency Separated) ──
     benign = data.get("benign_change_control")
     if isinstance(benign, dict) and benign.get("rows"):
         b_seeds: list[int] = list(benign.get("seeds", []))
@@ -802,69 +802,142 @@ def generate_benchmark_markdown_from_json(
         )
         ov = benign.get("overall", {})
         b_has_ev = any("evidently_detected" in r for r in benign["rows"])
+        b_has_ql = any("quality_fail_count" in r for r in benign["rows"])
+        n_changes = len(benign.get("changes", [])) or len({r["change"] for r in benign["rows"]})
+        n_datasets = len({r["dataset"] for r in benign["rows"]})
         lines.extend(
             [
                 "",
                 f"## 2. Benign-Change Control (Harmless Retrains, Seeds `{b_range}`, Frozen Defaults)",
                 "",
-                "Six realistic harmless retrain scenarios (`hyperparam_change`, `algo_swap_rf`, `algo_swap_logreg`, `more_data_20pct`, `irrelevant_feature`, `preprocessing_change`) across 30 seeds × 3 datasets (**UCI Adult**, **German Credit**, **Synthetic Credit**; 540 total trials), running all 6 schema-agnostic checks (`drift`, `leakage`, `label_shift`, `slices`, `budgets`, `fairness`) with zero threshold tuning.",
+                f"{n_changes} realistic harmless retrain scenarios across {len(b_seeds) or 'N'} fresh seeds × {n_datasets} datasets "
+                f"({int(ov.get('n_trials', len(benign['rows'])))} total trials), running all 6 schema-agnostic checks with **zero threshold tuning**. "
+                "**Quality findings** (`drift`, `leakage`, `label_shift`, `slices`, `fairness`) are shown **separately from latency findings** (`budgets`).",
                 "",
             ]
         )
         if ov:
             ov_n = int(ov.get("n_trials", 0))
-            lines.extend(
-                [
-                    f"- **Overall Benign FAIL Rate (Hard Block FP)**: **{_fmt_rate_ci(int(ov['fail_count']), ov_n, float(ov['fail_rate']), ov['fail_ci_95'])}**",
-                    f"- **Overall Benign WARN-Only Rate (Alert Fatigue)**: **{_fmt_rate_ci(int(ov['warn_only_count']), ov_n, float(ov['warn_only_rate']), ov['warn_only_ci_95'])}**",
-                    f"- **Overall Benign Flagged Rate (WARN+FAIL)**: **{_fmt_rate_ci(int(ov['flagged_count']), ov_n, float(ov['flagged_rate']), ov['flagged_ci_95'])}**",
-                    "",
-                ]
-            )
+            if "quality_fail_count" in ov:
+                lines.extend(
+                    [
+                        f"- **Quality-Only Benign FAIL Rate (Hard Block FP)**: **{_fmt_rate_ci(int(ov['quality_fail_count']), ov_n, float(ov['quality_fail_rate']), ov['quality_fail_ci_95'])}**",
+                        f"- **Quality-Only Benign WARN-Only Rate (Alert Fatigue)**: **{_fmt_rate_ci(int(ov['quality_warn_only_count']), ov_n, float(ov['quality_warn_only_rate']), ov['quality_warn_only_ci_95'])}**",
+                        f"- **Latency-Only Benign FAIL Rate (`budgets`)**: **{_fmt_rate_ci(int(ov['latency_fail_count']), ov_n, float(ov['latency_fail_rate']), ov['latency_fail_ci_95'])}**",
+                        f"- **Latency-Only Benign WARN Rate (`budgets`)**: **{_fmt_rate_ci(int(ov['latency_warn_count']), ov_n, float(ov['latency_warn_rate']), ov['latency_warn_ci_95'])}**",
+                        f"- **Combined Benign FAIL Rate (Quality + Latency)**: **{_fmt_rate_ci(int(ov['fail_count']), ov_n, float(ov['fail_rate']), ov['fail_ci_95'])}** | **Combined WARN-Only**: **{_fmt_rate_ci(int(ov['warn_only_count']), ov_n, float(ov['warn_only_rate']), ov['warn_only_ci_95'])}**",
+                        "",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        f"- **Overall Benign FAIL Rate (Hard Block FP)**: **{_fmt_rate_ci(int(ov['fail_count']), ov_n, float(ov['fail_rate']), ov['fail_ci_95'])}**",
+                        f"- **Overall Benign WARN-Only Rate (Alert Fatigue)**: **{_fmt_rate_ci(int(ov['warn_only_count']), ov_n, float(ov['warn_only_rate']), ov['warn_only_ci_95'])}**",
+                        f"- **Overall Benign Flagged Rate (WARN+FAIL)**: **{_fmt_rate_ci(int(ov['flagged_count']), ov_n, float(ov['flagged_rate']), ov['flagged_ci_95'])}**",
+                        "",
+                    ]
+                )
 
-        if b_has_ev:
-            lines.append(
-                "| Dataset | Benign Change | PredGate FAIL (95% CI) | PredGate WARN-Only (Alert Fatigue) | PredGate Flagged (WARN+FAIL) | Per-Group Acc Drop | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults |"
-            )
-            lines.append(
-                "|---------|---------------|------------------------|------------------------------------|------------------------------|--------------------|---------------------|------------------------|"
-            )
+        if b_has_ql:
+            header_cols = [
+                "Dataset",
+                "Benign Change",
+                "Quality FAIL (95% CI)",
+                "Quality WARN-Only (Alert Fatigue)",
+                "Latency FAIL (95% CI)",
+                "Latency WARN",
+                "Per-Group Acc Drop",
+                "Fixed DP (`>=0.10`)",
+            ]
         else:
-            lines.append(
-                "| Dataset | Benign Change | PredGate FAIL (95% CI) | PredGate WARN-Only (Alert Fatigue) | PredGate Flagged (WARN+FAIL) | Per-Group Acc Drop | Fixed DP (`>=0.10`) |"
-            )
-            lines.append(
-                "|---------|---------------|------------------------|------------------------------------|------------------------------|--------------------|---------------------|"
-            )
+            header_cols = [
+                "Dataset",
+                "Benign Change",
+                "PredGate FAIL (95% CI)",
+                "PredGate WARN-Only (Alert Fatigue)",
+                "PredGate Flagged (WARN+FAIL)",
+                "Per-Group Acc Drop",
+                "Fixed DP (`>=0.10`)",
+            ]
+        if b_has_ev:
+            header_cols.append("Evidently 0.7 Defaults")
+        lines.append("| " + " | ".join(header_cols) + " |")
+        lines.append("|" + "|".join("---" for _ in header_cols) + "|")
 
         for r in benign["rows"]:
             n_t = int(r["n_trials"])
-            cells = [
-                f"**{r['dataset']}**",
-                f"`{r['change']}`",
-                _fmt_rate_ci(int(r["fail_count"]), n_t, float(r["fail_rate"]), r["fail_ci_95"]),
-                _fmt_rate_ci(
-                    int(r["warn_only_count"]),
-                    n_t,
-                    float(r["warn_only_rate"]),
-                    r["warn_only_ci_95"],
-                ),
-                _fmt_rate_ci(
-                    int(r["flagged_count"]), n_t, float(r["flagged_rate"]), r["flagged_ci_95"]
-                ),
-                _fmt_rate_ci(
-                    int(r["per_group_acc_detected"]),
-                    n_t,
-                    float(r["per_group_acc_rate"]),
-                    r["per_group_acc_ci_95"],
-                ),
-                _fmt_rate_ci(
-                    int(r["fixed_dp_detected"]),
-                    n_t,
-                    float(r["fixed_dp_rate"]),
-                    r["fixed_dp_ci_95"],
-                ),
-            ]
+            if b_has_ql:
+                cells = [
+                    f"**{r['dataset']}**",
+                    f"`{r['change']}`",
+                    _fmt_rate_ci(
+                        int(r["quality_fail_count"]),
+                        n_t,
+                        float(r["quality_fail_rate"]),
+                        r["quality_fail_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["quality_warn_only_count"]),
+                        n_t,
+                        float(r["quality_warn_only_rate"]),
+                        r["quality_warn_only_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["latency_fail_count"]),
+                        n_t,
+                        float(r["latency_fail_rate"]),
+                        r["latency_fail_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["latency_warn_count"]),
+                        n_t,
+                        float(r["latency_warn_rate"]),
+                        r["latency_warn_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["per_group_acc_detected"]),
+                        n_t,
+                        float(r["per_group_acc_rate"]),
+                        r["per_group_acc_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["fixed_dp_detected"]),
+                        n_t,
+                        float(r["fixed_dp_rate"]),
+                        r["fixed_dp_ci_95"],
+                    ),
+                ]
+            else:
+                cells = [
+                    f"**{r['dataset']}**",
+                    f"`{r['change']}`",
+                    _fmt_rate_ci(int(r["fail_count"]), n_t, float(r["fail_rate"]), r["fail_ci_95"]),
+                    _fmt_rate_ci(
+                        int(r["warn_only_count"]),
+                        n_t,
+                        float(r["warn_only_rate"]),
+                        r["warn_only_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["flagged_count"]),
+                        n_t,
+                        float(r["flagged_rate"]),
+                        r["flagged_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["per_group_acc_detected"]),
+                        n_t,
+                        float(r["per_group_acc_rate"]),
+                        r["per_group_acc_ci_95"],
+                    ),
+                    _fmt_rate_ci(
+                        int(r["fixed_dp_detected"]),
+                        n_t,
+                        float(r["fixed_dp_rate"]),
+                        r["fixed_dp_ci_95"],
+                    ),
+                ]
             if b_has_ev:
                 cells.append(
                     _fmt_rate_ci(
@@ -883,20 +956,52 @@ def generate_benchmark_markdown_from_json(
                     "",
                     "### Per-Check Benign-Change FAIL & WARN Rates (All Datasets Combined)",
                     "",
-                    "| Check | FAIL Count & Rate (95% CI) | WARN Count & Rate (Alert Fatigue, 95% CI) | Flagged WARN+FAIL (95% CI) |",
-                    "|-------|----------------------------|-------------------------------------------|----------------------------|",
+                    "| Check | Category | FAIL Count & Rate (95% CI) | WARN Count & Rate (Alert Fatigue, 95% CI) | Flagged WARN+FAIL (95% CI) |",
+                    "|-------|----------|----------------------------|-------------------------------------------|----------------------------|",
                 ]
             )
             for pc in per_check:
                 n_pc = int(pc["n_trials"])
+                cat = "Latency" if pc["check"] == "budgets" else "Quality"
                 lines.append(
-                    f"| `{pc['check']}` | "
+                    f"| `{pc['check']}` | {cat} | "
                     f"{_fmt_rate_ci(int(pc['fail_count']), n_pc, float(pc['fail_rate']), pc['fail_ci_95'])} | "
                     f"{_fmt_rate_ci(int(pc['warn_count']), n_pc, float(pc['warn_rate']), pc['warn_ci_95'])} | "
                     f"{_fmt_rate_ci(int(pc['flagged_count']), n_pc, float(pc['flagged_rate']), pc['flagged_ci_95'])} |"
                 )
 
-    # ── 3. Held-Out Validation (Unseen Datasets & New Fault Families) ──
+        algo_fair = benign.get("algo_swap_fairness_metrics")
+        if isinstance(algo_fair, dict) and algo_fair.get("n_trials"):
+            fail_m_str = (
+                ", ".join(
+                    f"`{k}`: {v}"
+                    for k, v in sorted(
+                        algo_fair.get("fail_metrics", {}).items(), key=lambda x: -x[1]
+                    )
+                )
+                or "none"
+            )
+            warn_m_str = (
+                ", ".join(
+                    f"`{k}`: {v}"
+                    for k, v in sorted(
+                        algo_fair.get("warn_metrics", {}).items(), key=lambda x: -x[1]
+                    )
+                )
+                or "none"
+            )
+            lines.extend(
+                [
+                    "",
+                    "### Fairness Metric Breakdown on Benign Algorithm Swaps (`algo_swap_rf`, `algo_swap_logreg`)",
+                    "",
+                    f"- **Trials**: {algo_fair['n_trials']} (`fairness` FAIL: {algo_fair['n_fail']}, WARN: {algo_fair['n_warn']})",
+                    f"- **Triggering FAIL metrics**: {fail_m_str}",
+                    f"- **Triggering WARN metrics**: {warn_m_str}",
+                ]
+            )
+
+    # ── 3. Full Fault Validation Across All Datasets ──
     held = data.get("held_out_validation")
     if isinstance(held, dict) and held.get("rows"):
         h_seeds: list[int] = list(held.get("seeds", []))
@@ -907,25 +1012,25 @@ def generate_benchmark_markdown_from_json(
         lines.extend(
             [
                 "",
-                f"## 3. Held-Out Validation (Unseen Datasets & Unseen Fault Families, Seeds `{h_range}`, Frozen Defaults)",
+                f"## 3. Full Fault Validation Across All Datasets (Seeds `{h_range}`, Frozen Defaults)",
                 "",
-                "Evaluated with **frozen thresholds** (zero tuning) on two held-out OpenML datasets never used during development — **Bank Marketing** (`data_id=1461`, protected=`marital`) and **COMPAS Recidivism** (`data_id=42192`, protected=`race`) — including two brand-new fault families not used in design (`silent_null_imputation`: silent 40% null-to-zero corruption of primary numeric feature in training data; `cohort_feature_corruption`: cohort-localized 2σ feature corruption at inference time with clean training data).",
+                "Evaluated with **frozen thresholds** (zero tuning) across all datasets (**UCI Adult**, **German Credit**, **Synthetic Credit**, **Bank Marketing** `data_id=1461`, **COMPAS** `data_id=42192`) covering all fault families including `silent_null_imputation` (40% null-to-zero corruption of primary numeric feature in training data) and `cohort_feature_corruption` (cohort-localized 2σ feature corruption at inference time with clean training data).",
                 "",
             ]
         )
         if h_has_ev:
             lines.append(
-                "| Held-Out Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults | Power / MDE Note |"
+                "| Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults | Power / MDE Note |"
             )
             lines.append(
-                "|------------------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------------|------------------|"
+                "|---------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------------|------------------|"
             )
         else:
             lines.append(
-                "| Held-Out Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Power / MDE Note |"
+                "| Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Power / MDE Note |"
             )
             lines.append(
-                "|------------------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------|"
+                "|---------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------|"
             )
 
         for r in held["rows"]:
@@ -1002,7 +1107,7 @@ def generate_benchmark_markdown_from_json(
         lines.extend(
             [
                 "",
-                f"## 4. Public Fairness Validation (Adult, German Credit & Synthetic, Seeds `{pub_range}`, Frozen Defaults)",
+                f"## 4. Standalone Fairness Check Across All Datasets (Seeds `{pub_range}`, Frozen Defaults)",
                 "",
                 f"- **Command**: `{pub_cmd}`",
                 f"- **Evaluated Code Commit Hash**: `{pub_commit}`",
@@ -1099,8 +1204,8 @@ def generate_benchmark_markdown_from_json(
             "",
             "## Methodology",
             "",
-            f"Each suite uses 30 independent random seeds (Synthetic 7-fault: `{seeds[0]}..{seeds[-1]}`; Public fairness: `5000..5029`; Benign-change control: `6000..6029`; Held-out validation: `7000..7029`). "
-            "All PredGate thresholds are frozen at default values and never tuned against benign controls or held-out datasets. "
+            f"All suites use {len(seeds)} independent fresh random seeds (`{seeds[0]}..{seeds[-1]}`). "
+            "Seeds `6000..6029` from commit `8467d37` were used strictly as a development set to diagnose the `slices.py`, `drift.py`, and algo-swap defects; no thresholds were tuned after observing the fresh `9000..9029` evaluation results. "
             "Public datasets (UCI Adult `adult` v2, German Credit `credit-g` v1, Bank Marketing `1461`, COMPAS `42192`) are fetched directly from OpenML via `scripts/bench_public.py`. "
             "Confidence intervals use the 95% Wilson score interval (`z = 1.95996`).",
         ]

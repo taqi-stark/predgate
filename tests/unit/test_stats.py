@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 from predgate.stats import (
     BootstrapResult,
     calibration_gap_diff,
+    compute_point_mass_shift,
     compute_psi,
     compute_psi_categorical,
     demographic_parity_diff,
@@ -179,6 +180,26 @@ class TestPSI:
         psi = compute_psi(expected, actual)
 
         assert psi >= 0.0
+
+    def test_quantile_psi_and_point_mass_shift_null_to_zero(self) -> None:
+        """Reference-quantile PSI and point-mass spike detect null-to-zero even with outliers."""
+        rng = np.random.RandomState(42)
+        expected = rng.exponential(scale=100.0, size=1000)
+        expected[0] = 100_000.0  # outlier that previously collapsed equal-width bins
+        actual = expected.copy()
+        actual[:400] = 0.0
+
+        psi = compute_psi(expected, actual)
+        assert psi >= 0.25
+
+        delta, val, ref_s, cur_s = compute_point_mass_shift(expected, actual)
+        assert val == 0.0
+        assert delta >= 0.35
+        assert ref_s == 0.0 and cur_s >= 0.39
+
+        # Identical distributions have zero point-mass jump
+        d0, _, _, _ = compute_point_mass_shift(expected, expected)
+        assert d0 == 0.0
 
 
 class TestPSICategorical:

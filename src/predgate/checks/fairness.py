@@ -141,6 +141,8 @@ def run_fairness_check(
     max_mde_eo = 0.0
     bootstrap_fail_reasons: list[str] = []
     bootstrap_warn_reasons: list[str] = []
+    triggered_fail_metrics: list[str] = []
+    triggered_warn_metrics: list[str] = []
     selection_rate_shift_warn_reasons: list[str] = []
     power_notes: list[str] = []
 
@@ -293,11 +295,13 @@ def run_fairness_check(
                     boot.point_estimate >= config.fail_gap_increase
                     or boot.ci_lower >= config.max_gap_increase
                 ):
+                    triggered_fail_metrics.append(m_name)
                     bootstrap_fail_reasons.append(
                         f"{protected_col} {m_name} gap +{boot.point_estimate:.3f} "
                         f"(95% CI [+{boot.ci_lower:.3f}, +{boot.ci_upper:.3f}])"
                     )
                 elif boot.ci_lower > 0.0 and boot.point_estimate >= config.max_gap_increase:
+                    triggered_warn_metrics.append(m_name)
                     bootstrap_warn_reasons.append(
                         f"{protected_col} {m_name} gap +{boot.point_estimate:.3f} "
                         f"(95% CI [+{boot.ci_lower:.3f}, +{boot.ci_upper:.3f}])"
@@ -349,6 +353,7 @@ def run_fairness_check(
                 if g_idx < len(per_group):
                     per_group[g_idx]["selection_rate_shift"] = s_entry
                 if triggers_warn:
+                    triggered_warn_metrics.append("selection_rate_shift")
                     selection_rate_shift_warn_reasons.append(
                         f"{protected_col}={s_entry['group']} selection rate {s_entry['delta']:+.3f} "
                         f"(95% CI [{s_entry['ci_lower']:+.3f}, {s_entry['ci_upper']:+.3f}])"
@@ -411,6 +416,8 @@ def run_fairness_check(
             "groups": group_results,
             "power_notes": power_notes,
             "selection_rate_shift_warnings": selection_rate_shift_warn_reasons,
+            "triggered_fail_metrics": list(dict.fromkeys(triggered_fail_metrics)),
+            "triggered_warn_metrics": list(dict.fromkeys(triggered_warn_metrics)),
             "enforce_absolute": config.enforce_absolute,
         },
         duration_s=duration,

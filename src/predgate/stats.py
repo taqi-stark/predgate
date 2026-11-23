@@ -244,33 +244,82 @@ def compute_psi(
     n_bins: int = 10,
     eps: float = 1e-4,
 ) -> float:
-    """Compute Population Stability Index (PSI) between two distributions.
+    """Compute Population Stability Index (PSI) using reference-quantile bins.
+
+    Bin edges are derived strictly from the empirical quantiles of ``expected``
+    (with ``-inf`` / ``+inf`` outer edges and duplicate quantile edges collapsed),
+    preventing single extreme outliers from compressing the distribution into one bin.
 
     Args:
         expected: Reference distribution values.
         actual: Current distribution values.
-        n_bins: Number of bins for histogram.
+        n_bins: Target number of quantile bins.
         eps: Small value to avoid log(0).
 
     Returns:
-        PSI value. Values > 0.25 indicate significant shift.
+        PSI value. Values >= 0.25 indicate significant shift.
     """
-    # Create bins from the expected distribution
-    breakpoints = np.linspace(
-        min(np.min(expected), np.min(actual)),
-        max(np.max(expected), np.max(actual)),
-        n_bins + 1,
-    )
+    exp_arr = np.asarray(expected, dtype=np.float64)
+    act_arr = np.asarray(actual, dtype=np.float64)
+    if len(exp_arr) == 0 or len(act_arr) == 0:
+        return 0.0
 
-    expected_counts = np.histogram(expected, bins=breakpoints)[0].astype(float)
-    actual_counts = np.histogram(actual, bins=breakpoints)[0].astype(float)
+    quantiles = np.linspace(0.0, 1.0, max(int(n_bins), 2) + 1)
+    interior = np.unique(np.quantile(exp_arr, quantiles[1:-1]))
+    breakpoints = np.concatenate(([-np.inf], interior, [np.inf]))
 
-    # Normalize to proportions
-    expected_pct = expected_counts / len(expected) + eps
-    actual_pct = actual_counts / len(actual) + eps
+    expected_counts = np.histogram(exp_arr, bins=breakpoints)[0].astype(float)
+    actual_counts = np.histogram(act_arr, bins=breakpoints)[0].astype(float)
+
+    expected_pct = expected_counts / len(exp_arr) + eps
+    actual_pct = actual_counts / len(act_arr) + eps
 
     psi = float(np.sum((actual_pct - expected_pct) * np.log(actual_pct / expected_pct)))
     return psi
+
+
+def compute_point_mass_shift(
+    expected: NDArray[np.float64],
+    actual: NDArray[np.float64],
+    top_k: int = 5,
+) -> tuple[float, float | None, float, float]:
+    """Detect a numeric value-spike (point-mass jump) such as silent null-to-zero imputation.
+
+    Inspects the top-k most frequent exact numeric values in ``actual`` and computes the
+    maximum positive jump ``P_actual(X == v) - P_expected(X == v)``.
+
+    Returns:
+        Tuple of ``(max_delta, spike_value, ref_share, cur_share)``.
+    """
+    exp_arr = np.asarray(expected, dtype=np.float64)
+    act_arr = np.asarray(actual, dtype=np.float64)
+    if len(exp_arr) == 0 or len(act_arr) == 0:
+        return 0.0, None, 0.0, 0.0
+
+    vals, counts = np.unique(act_arr, return_counts=True)
+    if len(vals) == 0:
+        return 0.0, None, 0.0, 0.0
+
+    order = np.argsort(counts)[::-1][: max(int(top_k), 1)]
+    best_delta = 0.0
+    best_val: float | None = None
+    best_ref = 0.0
+    best_cur = 0.0
+
+    n_act = float(len(act_arr))
+    n_exp = float(len(exp_arr))
+    for idx in order:
+        v = float(vals[idx])
+        cur_share = float(counts[idx]) / n_act
+        ref_share = float(np.sum(exp_arr == v)) / n_exp
+        delta = cur_share - ref_share
+        if delta > best_delta:
+            best_delta = delta
+            best_val = v
+            best_ref = ref_share
+            best_cur = cur_share
+
+    return float(best_delta), best_val, float(best_ref), float(best_cur)
 
 
 def compute_psi_categorical(

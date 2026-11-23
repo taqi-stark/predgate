@@ -79,15 +79,23 @@ def build_pr_comment(
             lines.append(f"{i}. {reason.message}")
         lines.append("")
 
-    # Statistical power / minimum detectable gap notes
+    # Statistical power / minimum detectable gap & inconclusive interval notes
     power_notes: list[str] = []
+    inconclusive_notes: list[str] = []
     for cr in verdict.check_results:
         for note in cr.details.get("power_notes", []):
             power_notes.append(f"[{cr.name}] {note}")
+        for note in cr.details.get("inconclusive_notes", []):
+            inconclusive_notes.append(f"[{cr.name}] {note}")
     if power_notes:
         lines.append("**Statistical power notes**")
         for note in power_notes:
             lines.append(f"- ⚠️ {note}")
+        lines.append("")
+    if inconclusive_notes:
+        lines.append("**Inconclusive intervals**")
+        for note in inconclusive_notes:
+            lines.append(f"- ℹ️ {note}")
         lines.append("")
 
     # Footer
@@ -192,12 +200,20 @@ def build_html_report(
 
     power_html = ""
     html_power_notes: list[str] = []
+    html_inconclusive_notes: list[str] = []
     for cr in verdict.check_results:
         for note in cr.details.get("power_notes", []):
             html_power_notes.append(f"[{cr.name}] {note}")
+        for note in cr.details.get("inconclusive_notes", []):
+            html_inconclusive_notes.append(f"[{cr.name}] {note}")
     if html_power_notes:
         power_html = "<h3>Statistical Power Notes</h3><ul>"
         for note in html_power_notes:
+            power_html += f"<li>{note}</li>"
+        power_html += "</ul>"
+    if html_inconclusive_notes:
+        power_html += "<h3>Inconclusive Intervals</h3><ul>"
+        for note in html_inconclusive_notes:
             power_html += f"<li>{note}</li>"
         power_html += "</ul>"
 

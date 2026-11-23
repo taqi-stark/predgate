@@ -119,6 +119,74 @@ def test_drift_check_detects_drift(
     assert res.metrics["psi_max"] > 0.1
 
 
+def test_drift_check_new_feature_no_reference_info_and_warn(
+    sample_dataset: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame],
+) -> None:
+    """Features absent from reference must NOT fabricate psi=1.0; reported cleanly as info or warn."""
+    train_df, _, _ = sample_dataset
+    ref_df = train_df.copy()
+    with_new = train_df.copy()
+    with_new["brand_new_col"] = np.random.RandomState(7).normal(0, 1, len(with_new))
+
+    # Default on_new_feature='info' -> PASS, psi_max stays near 0, reported in details & summary
+    res_info = run_drift_check(with_new, ref_df, "default", DriftConfig(enabled=True))
+    assert res_info.status == "pass"
+    assert res_info.metrics["psi_max"] < 0.05
+    assert res_info.metrics["n_new_features"] == 1.0
+    assert res_info.details["new_features"] == [
+        {"feature": "brand_new_col", "note": "new feature, no reference"}
+    ]
+    assert "new feature, no reference" in res_info.summary
+
+    # Configurable on_new_feature='warn' -> WARN (never FAIL)
+    res_warn = run_drift_check(
+        with_new, ref_df, "default", DriftConfig(enabled=True, on_new_feature="warn")
+    )
+    assert res_warn.status == "warn"
+    assert "new feature, no reference" in res_warn.summary
+
+    # Shared features are still checked for real drift even when a new feature is present
+    with_new_and_drift = with_new.copy()
+    with_new_and_drift["income"] = with_new_and_drift["income"] * 10.0
+    res_both = run_drift_check(with_new_and_drift, ref_df, "default", DriftConfig(enabled=True))
+    assert res_both.status == "fail"
+    assert res_both.metrics["psi_max"] >= 0.25
+
+
+def test_drift_check_null_to_zero_imputation_value_spike() -> None:
+    """Reference-quantile PSI and numeric point-mass spike check catch silent null-to-zero fills."""
+    rng = np.random.RandomState(42)
+    n = 1000
+    # Case A: skewed positive feature with an extreme outlier (where equal-width PSI used to be blind)
+    duration = rng.exponential(scale=200.0, size=n)
+    duration[0] = 50000.0  # single extreme outlier
+    # Case B: zero-inflated feature (already 35% zeros, like COMPAS priors_count)
+    priors = np.where(rng.random(n) < 0.35, 0.0, rng.randint(1, 15, size=n).astype(float))
+
+    ref_df = pd.DataFrame({"duration": duration, "priors": priors, "default": rng.randint(0, 2, n)})
+
+    # Inject 40% silent null-to-zero corruption in duration only
+    cur_dur = ref_df.copy()
+    mask_a = rng.random(n) < 0.40
+    cur_dur.loc[mask_a, "duration"] = 0.0
+    res_a = run_drift_check(cur_dur, ref_df, "default", DriftConfig(enabled=True))
+    assert res_a.status == "fail"
+    assert res_a.metrics["max_point_mass_delta"] >= 0.30
+    assert res_a.metrics["psi_max"] >= 0.25
+    assert any(
+        s["feature"] == "duration" and s["value"] == 0.0 for s in res_a.details["point_mass_spikes"]
+    )
+
+    # Inject 40% silent null-to-zero corruption in already-zero-inflated priors only
+    cur_pri = ref_df.copy()
+    mask_b = rng.random(n) < 0.40
+    cur_pri.loc[mask_b, "priors"] = 0.0
+    res_b = run_drift_check(cur_pri, ref_df, "default", DriftConfig(enabled=True))
+    assert res_b.status == "fail"
+    assert res_b.metrics["max_point_mass_delta"] >= 0.20
+    assert "Value spike" in res_b.summary or res_b.metrics["psi_max"] >= 0.25
+
+
 def test_slices_check(sample_dataset: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]) -> None:
     train_df, test_df, _ = sample_dataset
     X_train = train_df[["income", "credit_score"]]
@@ -256,6 +324,100 @@ def test_slices_check_no_champion_skip(
     res = run_slices_check(test_df, "default", None, candidate, cfg)
     assert res.status == "skip"
     assert "No champion" in res.summary
+
+
+def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> None:
+    """Slices gate must FAIL only when CI lower > max_drop, WARN on point drop with wide CI,
+    PASS on near-zero drop, and mark wide intervals as 'inconclusive' in reports.
+    """
+    from predgate.report import build_html_report, build_pr_comment
+    from predgate.verdict import compute_verdict
+
+    # 1. Noisy small slice (n=40) with near-zero drop (2 errors swapped -> diff == 0.0, wide CI spanning +-0.10+)
+    y = np.array([0, 1] * 20)
+    df_small = pd.DataFrame({"region": ["North"] * 40, "idx": np.arange(40), "default": y})
+
+    champ_preds_zero = y.copy()
+    champ_preds_zero[:3] = 1 - champ_preds_zero[:3]  # 3 errors
+    cand_preds_zero = y.copy()
+    cand_preds_zero[3:6] = (
+        1 - cand_preds_zero[3:6]
+    )  # 3 different errors -> same accuracy (diff == 0.0)
+
+    class FixedPredModel:
+        def __init__(self, preds: np.ndarray) -> None:
+            self._preds = preds
+
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            return self._preds[X["idx"].values]
+
+    cfg = SliceConfig(
+        enabled=True,
+        metric="accuracy",
+        by=["region"],
+        min_slice_size=20,
+        max_drop=0.03,
+        max_ci_width=0.10,
+        confidence=0.95,
+        n_bootstrap=500,
+    )
+    res_near_zero = run_slices_check(
+        df_small,
+        "default",
+        FixedPredModel(champ_preds_zero),
+        FixedPredModel(cand_preds_zero),
+        cfg,
+        seed=42,
+    )
+    assert res_near_zero.status == "pass"
+    sr0 = res_near_zero.details["slices"][0]
+    assert abs(sr0["diff"]) < 1e-6
+    assert sr0["ci_upper"] > 0.03  # Old buggy gate would have FAILed here!
+    assert sr0["inconclusive"] is True
+    assert "inconclusive" in res_near_zero.summary
+
+    verdict = compute_verdict([res_near_zero])
+    pr_md = build_pr_comment(verdict)
+    html_doc = build_html_report(verdict)
+    assert "Inconclusive intervals" in pr_md
+    assert "inconclusive" in pr_md.lower()
+    assert "Inconclusive Intervals" in html_doc
+
+    # 2. Point drop exceeds max_drop (0.05 > 0.03), but wide CI includes <= max_drop -> WARN (not FAIL)
+    cand_preds_mod = y.copy()
+    cand_preds_mod[:5] = 1 - cand_preds_mod[:5]  # 5 errors vs champion's 3 (diff = +0.05 on n=40)
+    res_warn = run_slices_check(
+        df_small,
+        "default",
+        FixedPredModel(champ_preds_zero),
+        FixedPredModel(cand_preds_mod),
+        cfg,
+        seed=42,
+    )
+    assert res_warn.status == "warn"
+    sr_w = res_warn.details["slices"][0]
+    assert sr_w["diff"] > 0.03
+    assert sr_w["ci_lower"] <= 0.03
+    assert sr_w["verdict"] == "warn"
+
+    # 3. Clear regression (n=200, candidate drops accuracy by 0.25 -> ci_lower >> 0.03) -> FAIL
+    y_big = np.array([0, 1] * 100)
+    df_big = pd.DataFrame({"region": ["North"] * 200, "idx": np.arange(200), "default": y_big})
+    champ_big = y_big.copy()
+    cand_big = y_big.copy()
+    cand_big[:50] = 1 - cand_big[:50]
+    res_fail = run_slices_check(
+        df_big,
+        "default",
+        FixedPredModel(champ_big),
+        FixedPredModel(cand_big),
+        cfg,
+        seed=42,
+    )
+    assert res_fail.status == "fail"
+    sr_f = res_fail.details["slices"][0]
+    assert sr_f["ci_lower"] > 0.03
+    assert sr_f["verdict"] == "fail"
 
 
 def test_budgets_check_fail_latency() -> None:

@@ -3,6 +3,14 @@
 For each configured slicing column, computes the metric for champion and
 candidate on the test set using paired bootstrap for confidence intervals.
 Applies Holm-Bonferroni correction across slices.
+
+Gating rules:
+- FAIL only when the LOWER bound of the drop CI exceeds ``max_drop``
+  (statistically confident regression beyond the allowed drop).
+- WARN when the point drop exceeds ``max_drop`` but the CI includes values
+  at or below ``max_drop``.
+- Mark any slice whose CI width exceeds ``max_ci_width`` as ``inconclusive``
+  in details and reports.
 """
 
 from __future__ import annotations
@@ -27,15 +35,7 @@ METRIC_FUNCTIONS: dict[str, Any] = {
 
 
 def _auto_bin(series: pd.Series, n_bins: int = 5) -> pd.Series:
-    """Auto-bin a numeric column into quantile buckets.
-
-    Args:
-        series: Numeric pandas Series.
-        n_bins: Number of quantile bins.
-
-    Returns:
-        Categorical Series with bucket labels.
-    """
+    """Auto-bin a numeric column into quantile buckets."""
     try:
         return pd.qcut(series, q=n_bins, labels=False, duplicates="drop").astype(str)
     except ValueError:
@@ -50,19 +50,7 @@ def run_slices_check(
     config: SliceConfig,
     seed: int = 42,
 ) -> CheckResult:
-    """Run slice regression check comparing candidate to champion.
-
-    Args:
-        test_df: Test DataFrame.
-        target_column: Name of the target column.
-        champion_model: The champion model (None if first run).
-        candidate_model: The candidate model.
-        config: Slice check configuration.
-        seed: Random seed for bootstrap.
-
-    Returns:
-        CheckResult with per-slice analysis.
-    """
+    """Run slice regression check comparing candidate to champion."""
     start = time.time()
 
     if not config.enabled:
@@ -89,20 +77,17 @@ def run_slices_check(
     champion_preds = champion_model.predict(X_test)
     candidate_preds = candidate_model.predict(X_test)
 
-    # Compute overall metrics
     overall_champion = metric_fn(y_test, champion_preds)
     overall_candidate = metric_fn(y_test, candidate_preds)
 
     slice_results: list[dict[str, Any]] = []
     p_values: list[float] = []
-    slice_names: list[str] = []
 
     for col in config.by:
         if col not in test_df.columns:
             continue
 
         series = test_df[col]
-        # Auto-bin numeric columns
         if pd.api.types.is_numeric_dtype(series):
             slice_col = _auto_bin(series)
         else:
@@ -119,7 +104,6 @@ def run_slices_check(
             champ_slice = champion_preds[mask]
             cand_slice = candidate_preds[mask]
 
-            # Paired bootstrap for CI
             bootstrap = paired_bootstrap_ci(
                 y_slice,
                 champ_slice,
@@ -132,10 +116,11 @@ def run_slices_check(
             )
 
             p_values.append(bootstrap.p_value)
-            slice_names.append(f"{col}={slice_val}")
 
             champ_metric = float(metric_fn(y_slice, champ_slice))
             cand_metric = float(metric_fn(y_slice, cand_slice))
+            ci_width = float(bootstrap.ci_upper - bootstrap.ci_lower)
+            is_inconclusive = ci_width > config.max_ci_width
 
             slice_results.append(
                 {
@@ -148,36 +133,51 @@ def run_slices_check(
                     "diff": round(bootstrap.point_estimate, 4),
                     "ci_lower": round(bootstrap.ci_lower, 4),
                     "ci_upper": round(bootstrap.ci_upper, 4),
+                    "ci_width": round(ci_width, 4),
+                    "inconclusive": is_inconclusive,
                     "p_value": round(bootstrap.p_value, 4),
                 }
             )
 
-    # Apply Holm-Bonferroni
     rejected = holm_bonferroni(p_values, alpha=1.0 - config.confidence) if p_values else []
 
-    # Determine status per slice and overall
     has_fail = False
     has_warn = False
     failing_slices: list[str] = []
+    warning_slices: list[str] = []
+    inconclusive_slices: list[str] = []
+    inconclusive_notes: list[str] = []
 
     for i, sr in enumerate(slice_results):
         sr["significant"] = rejected[i] if i < len(rejected) else False
 
-        # FAIL if upper bound of CI exceeds max_drop
-        if sr["ci_upper"] > config.max_drop:
+        if sr["inconclusive"]:
+            inconclusive_slices.append(sr["slice"])
+            inconclusive_notes.append(
+                f"inconclusive interval on '{sr['slice']}' (n={sr['n_rows']}, "
+                f"95% CI [{sr['ci_lower']:+.3f}, {sr['ci_upper']:+.3f}], "
+                f"width={sr['ci_width']:.3f} > {config.max_ci_width:.3f})"
+            )
+
+        # FAIL only when the LOWER bound of the drop CI exceeds max_drop.
+        # WARN when the point drop exceeds max_drop but the interval includes values <= max_drop.
+        if sr["ci_lower"] > config.max_drop:
             sr["verdict"] = "fail"
             has_fail = True
             failing_slices.append(
                 f"{sr['slice']} {config.metric} -{sr['diff']:.2f} "
                 f"(95% CI {sr['ci_lower']:.2f} to {sr['ci_upper']:.2f})"
             )
-        elif sr["diff"] > config.max_drop and sr["ci_lower"] <= 0:
+        elif sr["diff"] > config.max_drop:
             sr["verdict"] = "warn"
             has_warn = True
+            warning_slices.append(
+                f"{sr['slice']} {config.metric} -{sr['diff']:.2f} "
+                f"(95% CI {sr['ci_lower']:.2f} to {sr['ci_upper']:.2f})"
+            )
         else:
             sr["verdict"] = "pass"
 
-    # Sort by diff descending (worst first)
     slice_results.sort(key=lambda x: x["diff"], reverse=True)
 
     duration = time.time() - start
@@ -188,10 +188,18 @@ def run_slices_check(
         summary = "; ".join(failing_slices[:3])
     elif has_warn:
         status = "warn"
-        summary = "Point estimate drops in some slices but CIs include zero"
+        summary = f"Point drop exceeds {config.max_drop:.2f} (CI overlaps threshold): " + "; ".join(
+            warning_slices[:3]
+        )
     else:
         status = "pass"
         summary = f"No slice regression detected (overall {config.metric}: {overall_candidate:.3f})"
+
+    if inconclusive_slices:
+        summary = (
+            f"{summary} [inconclusive: {len(inconclusive_slices)} slice(s) wider than "
+            f"{config.max_ci_width:.2f}]"
+        )
 
     return CheckResult(
         name="slices",
@@ -202,10 +210,14 @@ def run_slices_check(
             f"overall_candidate_{config.metric}": overall_candidate,
             "n_slices_checked": float(len(slice_results)),
             "n_failing_slices": float(len(failing_slices)),
+            "n_warning_slices": float(len(warning_slices)),
+            "n_inconclusive_slices": float(len(inconclusive_slices)),
         },
         details={
             "slices": slice_results,
             "worst_5": slice_results[:5],
+            "inconclusive_slices": inconclusive_slices,
+            "inconclusive_notes": inconclusive_notes,
         },
         duration_s=duration,
     )

@@ -119,7 +119,8 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
         "comparator_config": {"evidently_version": "0.7.23", "pandas_version": "2.3.3"},
         "summary": res["summary"],
         "benign_change_control": {
-            "seeds": [6000, 6001],
+            "seeds": [9000, 9001],
+            "changes": ["hyperparam_change"],
             "overall": {
                 "n_trials": 2,
                 "fail_count": 0,
@@ -131,6 +132,18 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
                 "flagged_count": 1,
                 "flagged_rate": 0.5,
                 "flagged_ci_95": [0.095, 0.905],
+                "quality_fail_count": 0,
+                "quality_fail_rate": 0.0,
+                "quality_fail_ci_95": [0.0, 0.658],
+                "quality_warn_only_count": 1,
+                "quality_warn_only_rate": 0.5,
+                "quality_warn_only_ci_95": [0.095, 0.905],
+                "latency_fail_count": 0,
+                "latency_fail_rate": 0.0,
+                "latency_fail_ci_95": [0.0, 0.658],
+                "latency_warn_count": 0,
+                "latency_warn_rate": 0.0,
+                "latency_warn_ci_95": [0.0, 0.658],
             },
             "rows": [
                 {
@@ -146,6 +159,18 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
                     "flagged_count": 1,
                     "flagged_rate": 0.5,
                     "flagged_ci_95": [0.095, 0.905],
+                    "quality_fail_count": 0,
+                    "quality_fail_rate": 0.0,
+                    "quality_fail_ci_95": [0.0, 0.658],
+                    "quality_warn_only_count": 1,
+                    "quality_warn_only_rate": 0.5,
+                    "quality_warn_only_ci_95": [0.095, 0.905],
+                    "latency_fail_count": 0,
+                    "latency_fail_rate": 0.0,
+                    "latency_fail_ci_95": [0.0, 0.658],
+                    "latency_warn_count": 0,
+                    "latency_warn_rate": 0.0,
+                    "latency_warn_ci_95": [0.0, 0.658],
                     "per_group_acc_detected": 0,
                     "per_group_acc_rate": 0.0,
                     "per_group_acc_ci_95": [0.0, 0.658],
@@ -237,6 +262,8 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     assert "0.123 -> 0.123" in rendered
     assert "5000..5001" in rendered
     assert "Benign-Change Control" in rendered
-    assert "Held-Out Validation" in rendered
+    assert "Quality FAIL (95% CI)" in rendered
+    assert "Latency FAIL (95% CI)" in rendered
+    assert "Full Fault Validation" in rendered
     assert "Evidently" in rendered
     assert "| **UCI Adult** |" not in rendered

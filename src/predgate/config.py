@@ -65,6 +65,9 @@ class DriftConfig(BaseModel):
     method: Literal["psi", "ks"] = "psi"
     warn_at: float = 0.1
     fail_at: float = 0.25
+    on_new_feature: Literal["info", "warn"] = "info"
+    point_mass_warn_delta: float = 0.10
+    point_mass_fail_delta: float = 0.20
 
 
 class SliceConfig(BaseModel):
@@ -75,6 +78,7 @@ class SliceConfig(BaseModel):
     by: list[str] = Field(default_factory=list)
     min_slice_size: int = 100
     max_drop: float = 0.03
+    max_ci_width: float = 0.10
     confidence: float = 0.95
     n_bootstrap: int = 1000
 
