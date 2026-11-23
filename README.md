@@ -1,21 +1,23 @@
-# ModelGate
+# PredGate
 
-[![CI](https://github.com/your-org/ModelGate/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ModelGate/actions/workflows/ci.yml)
+> **Renamed from `ModelGate` → `PredGate` (`predgate`)** because `modelgate` is already taken on PyPI. See [MIGRATION.md](MIGRATION.md) for the full package, import, CLI, config, and workflow migration guide.
+
+[![CI](https://github.com/your-org/PredGate/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/PredGate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python: 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Coverage: 96% Core](https://img.shields.io/badge/coverage-96%25%20core-brightgreen.svg)](https://github.com/your-org/ModelGate)
+[![Coverage: 96% Core](https://img.shields.io/badge/coverage-96%25%20core-brightgreen.svg)](https://github.com/your-org/PredGate)
 
-**ModelGate** is an open-source CI/CD quality gate for machine learning models that intercepts pull requests changing model code, hyperparameters, or training data. Acting as automated code review and unit testing for ML, it runs a battery of **eight** statistical and operational checks—data contracts, feature drift, target leakage, subgroup label shift, slice regressions with vectorized paired bootstrap confidence intervals, behavioral invariance, performance budgets, and algorithmic fairness—blocking regressions before they reach production.
+**PredGate** is an open-source CI/CD quality gate for machine learning models that intercepts pull requests changing model code, hyperparameters, or training data. Acting as automated code review and unit testing for ML, it runs a battery of **eight** statistical and operational checks—data contracts, feature drift, target leakage, subgroup label shift, slice regressions with vectorized paired bootstrap confidence intervals, behavioral invariance, performance budgets, and algorithmic fairness—blocking regressions before they reach production.
 
 ---
 
 ## Real Output & Dashboard
 
-### 1. GitHub PR Comment Bot (`modelgate_output/pr_comment.md`)
-When executed on a pull request, `modelgate run` writes `modelgate_output/pr_comment.md` (via `build_pr_comment` in `src/modelgate/report.py`):
+### 1. GitHub PR Comment Bot (`predgate_output/pr_comment.md`)
+When executed on a pull request, `predgate run` writes `predgate_output/pr_comment.md` (via `build_pr_comment` in `src/predgate/report.py`):
 
 ```markdown
-## ModelGate verdict: PASS
+## PredGate verdict: PASS
 
 **Candidate** `df94431` | seed 42 | data `4d4bede1...`
 
@@ -45,17 +47,17 @@ The Vite + React dashboard (`dashboard/src/`) queries the FastAPI backend (`http
 
 ## Quickstart (3 Commands)
 
-Get ModelGate running locally with the credit-risk demo in 3 commands:
+Get PredGate running locally with the credit-risk demo in 3 commands:
 
 ```bash
-# 1. Install ModelGate with development dependencies
+# 1. Install PredGate with development dependencies
 pip install -e ".[dev]"
 
 # 2. Train baseline model and generate demo datasets
 python demo/train.py
 
-# 3. Execute the full ModelGate quality check suite
-modelgate run --config modelgate.yaml
+# 3. Execute the full PredGate quality check suite
+predgate run --config predgate.yaml
 ```
 
 *To launch the full API, MLflow, and Dashboard stack via Docker:*
@@ -73,8 +75,8 @@ flowchart TD
         A[Git Push / Pull Request] --> B[GitHub Actions CI / action.yml]
     end
 
-    subgraph ModelGate Execution
-        B --> C[modelgate run --config modelgate.yaml]
+    subgraph PredGate Execution
+        B --> C[predgate run --config predgate.yaml]
         C --> D[Lineage Capture: Git SHA + DVC Hash]
         C --> E[MLflow Registry: Load Champion vs Candidate]
         C --> F{Quality Gate Checks}
@@ -112,17 +114,17 @@ flowchart TD
 ## Project Structure
 
 ```
-ModelGate/
+PredGate/
 ├── .github/
 │   ├── CODEOWNERS                 # Code Owner rules protecting /champion/ and /champion.dvc
 │   └── workflows/
 │       ├── ci.yml                 # Lint (ruff), type check (mypy), tests (pytest), dashboard build
-│       └── modelgate.yml          # Fail-closed quality gate on PRs (pinned base-branch install)
+│       └── predgate.yml          # Fail-closed quality gate on PRs (pinned base-branch install)
 ├── action.yml                     # Reusable GitHub Composite Action
 ├── docker-compose.yml             # Local multi-service stack (API, MLflow, Dashboard, Seed)
-├── Dockerfile                     # Multi-stage container for ModelGate API & CLI
+├── Dockerfile                     # Multi-stage container for PredGate API & CLI
 ├── pyproject.toml                 # Package configuration, Hatchling build, pytest & ruff settings
-├── modelgate.yaml                 # Quality gate configuration file
+├── predgate.yaml                 # Quality gate configuration file
 ├── data.dvc                       # DVC lockfile tracking SHA-256 data hash
 ├── data/                          # Reference, train, and test datasets
 ├── demo/
@@ -145,9 +147,9 @@ ModelGate/
 │   ├── seed.py                    # Docker Compose seed script for initial demo data
 │   ├── run_bench_fast.py          # Synthetic 30-seed benchmark runner
 │   └── bench_public.py            # End-to-end OpenML (Adult, German Credit) + synthetic benchmark runner
-├── src/modelgate/                 # Core Python package
-│   ├── cli.py                     # Typer CLI (modelgate run / bench / reproduce / init)
-│   ├── config.py                  # Pydantic models for modelgate.yaml
+├── src/predgate/                 # Core Python package
+│   ├── cli.py                     # Typer CLI (predgate run / bench / reproduce / init)
+│   ├── config.py                  # Pydantic models for predgate.yaml
 │   ├── verdict.py                 # Verdict aggregator (PASS / WARN / FAIL)
 │   ├── stats.py                   # Paired bootstrap CI, PSI, KS-test, Holm-Bonferroni
 │   ├── report.py                  # HTML report & GitHub Markdown PR comment generation
@@ -179,13 +181,13 @@ ModelGate/
 
 ## Security & HTTPS Deployment
 
-- **No Default Admin Token**: ModelGate never ships with a hardcoded or default admin token. Users are provisioned via `modelgate users add <name> --role <engineer|reviewer|admin>` (or bootstrapped via `MODELGATE_ADMIN_TOKEN` set explicitly at runtime), and only the SHA-256 hash of each bearer token is persisted in the database.
+- **No Default Admin Token**: PredGate never ships with a hardcoded or default admin token. Users are provisioned via `predgate users add <name> --role <engineer|reviewer|admin>` (or bootstrapped via `PREDGATE_ADMIN_TOKEN` set explicitly at runtime), and only the SHA-256 hash of each bearer token is persisted in the database.
 - **Role-Based Access Control & Audit Log**: Mutating endpoints enforce role checks (`engineer`, `reviewer`, `admin`) and log both allowed and denied (`401`/`403`/`400`) requests to the append-only `audit_log` table (`GET /audit`).
-- **Restricted CORS**: Allowed origins default to `http://localhost:3000,http://localhost:5173` (configurable via `MODELGATE_CORS_ORIGINS`), with methods restricted to `GET, POST, PUT, OPTIONS` and headers restricted to `Authorization, Content-Type, Accept`.
-- **HTTPS Requirement in Production**: Because bearer tokens are sent in the `Authorization: Bearer <token>` HTTP header, all non-localhost deployments **must** terminate TLS/HTTPS (e.g. behind Nginx, Caddy, Envoy, or a cloud load balancer with `https://` origins in `MODELGATE_CORS_ORIGINS`) so bearer tokens are never transmitted in cleartext.
+- **Restricted CORS**: Allowed origins default to `http://localhost:3000,http://localhost:5173` (configurable via `PREDGATE_CORS_ORIGINS`), with methods restricted to `GET, POST, PUT, OPTIONS` and headers restricted to `Authorization, Content-Type, Accept`.
+- **HTTPS Requirement in Production**: Because bearer tokens are sent in the `Authorization: Bearer <token>` HTTP header, all non-localhost deployments **must** terminate TLS/HTTPS (e.g. behind Nginx, Caddy, Envoy, or a cloud load balancer with `https://` origins in `PREDGATE_CORS_ORIGINS`) so bearer tokens are never transmitted in cleartext.
 
 ---
 
 ## License
 
-ModelGate is open-source software licensed under the [MIT License](LICENSE).
+PredGate is open-source software licensed under the [MIT License](LICENSE).

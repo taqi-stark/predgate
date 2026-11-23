@@ -1,14 +1,14 @@
-# ModelGate — Architecture
+# PredGate — Architecture
 
 ## Overview
 
-ModelGate is a **CI/CD quality gate for ML models**. It intercepts every PR that changes model code, data, or configuration, executes a configurable set of checks, and blocks the merge if the model doesn't meet production standards.
+PredGate is a **CI/CD quality gate for ML models**. It intercepts every PR that changes model code, data, or configuration, executes a configurable set of checks, and blocks the merge if the model doesn't meet production standards.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Developer Workflow                         │
 │                                                                  │
-│  git push  →  GitHub Actions  →  modelgate run  →  PR comment   │
+│  git push  →  GitHub Actions  →  predgate run  →  PR comment   │
 │                                        │                         │
 │                              verdict.json / report.html         │
 └──────────────────────────────────────────────────────────────────┘
@@ -19,10 +19,10 @@ ModelGate is a **CI/CD quality gate for ML models**. It intercepts every PR that
 ## Repository Layout
 
 ```
-ModelGate/
-├── src/modelgate/          # Core Python package
-│   ├── cli.py              # Typer CLI (modelgate run / bench / reproduce …)
-│   ├── config.py           # Pydantic models for modelgate.yaml
+PredGate/
+├── src/predgate/          # Core Python package
+│   ├── cli.py              # Typer CLI (predgate run / bench / reproduce …)
+│   ├── config.py           # Pydantic models for predgate.yaml
 │   ├── loader.py           # Dynamic import of model entrypoints
 │   ├── lineage.py          # Git SHA + DVC hash capture
 │   ├── registry.py         # MLflow champion/challenger registry
@@ -59,11 +59,11 @@ ModelGate/
 ├── scripts/seed.py         # Docker Compose seed script
 ├── .github/workflows/
 │   ├── ci.yml              # Ruff, mypy, pytest, dashboard build
-│   └── modelgate.yml       # ModelGate quality-gate on PRs
+│   └── predgate.yml       # PredGate quality-gate on PRs
 ├── action.yml              # Reusable GitHub composite action
 ├── docker-compose.yml      # api + mlflow + dashboard + seed
 ├── Dockerfile              # API container
-└── modelgate.yaml          # Project-level configuration
+└── predgate.yaml          # Project-level configuration
 ```
 
 ---
@@ -71,7 +71,7 @@ ModelGate/
 ## Core Data Flow
 
 ```
-modelgate run
+predgate run
      │
      ▼
 config.py ──► loader.py
@@ -128,7 +128,7 @@ config.py ──► loader.py
 2. Any `WARN` (no `FAIL`) → overall verdict is **WARN**  
 3. All `PASS` / `SKIP` → overall verdict is **PASS**
 
-The `fail_if_any_fail` flag in `modelgate.yaml` controls whether the CI step exits non-zero.
+The `fail_if_any_fail` flag in `predgate.yaml` controls whether the CI step exits non-zero.
 
 ---
 
@@ -147,13 +147,13 @@ The FastAPI layer (`api/main.py`) exposes:
 | `PUT` | `/settings` | Update project settings |
 | `GET` | `/stats/summary` | Aggregate pass/warn/fail counts |
 
-Data is persisted in a SQLite file (`modelgate.db`). In Docker Compose this file is stored in a named volume.
+Data is persisted in a SQLite file (`predgate.db`). In Docker Compose this file is stored in a named volume.
 
 ---
 
 ## MLflow Integration
 
-ModelGate uses a **single tracking URI** configured in `modelgate.yaml`:
+PredGate uses a **single tracking URI** configured in `predgate.yaml`:
 
 ```yaml
 mlflow:
@@ -171,10 +171,10 @@ When running via Docker Compose the API passes `MLFLOW_TRACKING_URI=http://mlflo
 
 ```bash
 dvc pull          # downloads data/ matching data.dvc SHA
-modelgate reproduce
+predgate reproduce
 ```
 
-`modelgate reproduce` calls `dvc repro` before running the gate, ensuring data integrity.
+`predgate reproduce` calls `dvc repro` before running the gate, ensuring data integrity.
 
 ---
 
@@ -192,7 +192,7 @@ modelgate reproduce
                       └───────────────┘
 ```
 
-- **api** — FastAPI service; reads/writes `modelgate.db` via a named volume.  
+- **api** — FastAPI service; reads/writes `predgate.db` via a named volume.  
 - **mlflow** — MLflow tracking server; persists runs in `mlflow-data` volume.  
 - **dashboard** — Vite/React app served via nginx; proxies API calls.  
 - **seed** — Runs once on startup; generates demo data and posts results to the API.
@@ -216,34 +216,34 @@ Runs on every push and PR to `main`:
 3. **Pytest** — unit tests with coverage gate (≥ 55% total)  
 4. **Dashboard build** — `npm run build` in `dashboard/`
 
-### Quality Gate (`modelgate.yml`)
+### Quality Gate (`predgate.yml`)
 
-Triggered on PRs that touch `src/`, `demo/`, `data/`, or `modelgate.yaml`:
+Triggered on PRs that touch `src/`, `demo/`, `data/`, or `predgate.yaml`:
 
-1. Runs `modelgate run`  
+1. Runs `predgate run`  
 2. Uploads `report.html` as an artifact  
 3. Posts/updates a PR comment with the verdict table  
 4. Sets a commit status (`success` / `failure`)
 
 ### Reusable Composite Action (`action.yml`)
 
-Any downstream repository can use ModelGate as a reusable action:
+Any downstream repository can use PredGate as a reusable action:
 
 ```yaml
-- uses: your-org/ModelGate@main
+- uses: your-org/PredGate@main
   with:
-    config: modelgate.yaml
-    output-dir: modelgate_output
+    config: predgate.yaml
+    output-dir: predgate_output
     fail-on-verdict: 'true'
 ```
 
 ---
 
-## Extending ModelGate
+## Extending PredGate
 
 To add a new check:
 
-1. Create `src/modelgate/checks/mycheck.py` with a `run_mycheck(…) -> CheckResult` function.  
+1. Create `src/predgate/checks/mycheck.py` with a `run_mycheck(…) -> CheckResult` function.  
 2. Add a `MyCheckConfig` Pydantic model in `config.py`.  
 3. Wire it into `cli.py` (inside `run_gate`).  
 4. Add a unit test under `tests/unit/test_checks.py`.

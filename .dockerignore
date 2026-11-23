@@ -18,6 +18,6 @@ coverage.xml
 *.sqlite
 *.sqlite3
 mlruns
-modelgate_output
+predgate_output
 node_modules
 dashboard/node_modules

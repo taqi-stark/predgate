@@ -1,24 +1,24 @@
-name: 'ModelGate Quality Gate'
+name: 'PredGate Quality Gate'
 description: 'Production CI/CD quality gate for ML models: data contracts, drift, leakage, label shift, slice regression, behavioral tests, latency/size budgets, and fairness.'
-author: 'ModelGate Authors'
+author: 'PredGate Authors'
 
 inputs:
   config:
-    description: 'Path to modelgate.yaml configuration file'
+    description: 'Path to predgate.yaml configuration file'
     required: false
-    default: 'modelgate.yaml'
+    default: 'predgate.yaml'
   python-version:
     description: 'Python version to use'
     required: false
     default: '3.12'
-  modelgate-spec:
-    description: 'Optional pinned ModelGate package spec (e.g. modelgate==0.1.0 or git+https://...@<sha>). When omitted on a PR, installs the committed base branch or pinned action ref (never the untrusted PR head).'
+  predgate-spec:
+    description: 'Optional pinned PredGate package spec (e.g. predgate==0.1.0 or git+https://...@<sha>). When omitted on a PR, installs the committed base branch or pinned action ref (never the untrusted PR head).'
     required: false
     default: ''
   output-dir:
     description: 'Directory to store generated reports and PR comments'
     required: false
-    default: 'modelgate_output'
+    default: 'predgate_output'
   baseline-dir:
     description: 'Directory containing persisted champion baseline (model.pkl, metadata.json, metrics.json)'
     required: false
@@ -62,14 +62,14 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Fetch Base Ref & Install Pinned ModelGate
+    - name: Fetch Base Ref & Install Pinned PredGate
       id: install_pinned
       shell: bash
       run: |
         set -euo pipefail
         BASE_REF="${{ inputs.base-ref || github.base_ref }}"
         EVENT_NAME="${{ github.event_name }}"
-        MODELGATE_SPEC="${{ inputs.modelgate-spec }}"
+        PREDGATE_SPEC="${{ inputs.predgate-spec }}"
 
         if [ -z "$BASE_REF" ] && [[ "$EVENT_NAME" == pull_request* ]]; then
           echo "::error::Base ref is required on pull_request events; failing closed" >&2
@@ -88,10 +88,10 @@ runs:
         fi
 
         python -m pip install --upgrade pip
-        if [ -n "$MODELGATE_SPEC" ]; then
-          pip install "${MODELGATE_SPEC}"
+        if [ -n "$PREDGATE_SPEC" ]; then
+          pip install "${PREDGATE_SPEC}"
         elif [ -n "$BASE_COMMIT" ] && git cat-file -e "${BASE_COMMIT}:pyproject.toml" 2>/dev/null; then
-          TRUSTED_DIR="${RUNNER_TEMP:-/tmp}/modelgate-trusted-${GITHUB_RUN_ID:-local}"
+          TRUSTED_DIR="${RUNNER_TEMP:-/tmp}/predgate-trusted-${GITHUB_RUN_ID:-local}"
           rm -rf "${TRUSTED_DIR}"
           mkdir -p "${TRUSTED_DIR}"
           git archive "${BASE_COMMIT}" | tar -x -C "${TRUSTED_DIR}"
@@ -99,7 +99,7 @@ runs:
         elif [ -n "${GITHUB_ACTION_PATH:-}" ] && [ "${GITHUB_ACTION_PATH}" != "${GITHUB_WORKSPACE:-}" ] && [ -f "${GITHUB_ACTION_PATH}/pyproject.toml" ]; then
           pip install "${GITHUB_ACTION_PATH}"
         else
-          echo "::error::Refusing to install untrusted PR head code. Provide 'modelgate-spec', run from a pinned external action ref, or provide a base branch containing ModelGate." >&2
+          echo "::error::Refusing to install untrusted PR head code. Provide 'predgate-spec', run from a pinned external action ref, or provide a base branch containing PredGate." >&2
           exit 1
         fi
 
@@ -155,7 +155,7 @@ runs:
           if [ -n "$PINNED_SHA" ]; then
             VERIFY_ARGS+=(--pinned-sha256 "$PINNED_SHA")
           fi
-          modelgate baseline verify "${VERIFY_ARGS[@]}"
+          predgate baseline verify "${VERIFY_ARGS[@]}"
         elif [ -n "$BASE_REF" ]; then
           echo "::error::Champion baseline ${BASE_DIR}/model.pkl missing after base-branch checkout; failing closed" >&2
           exit 1
@@ -174,7 +174,7 @@ runs:
           if [ -n "$PINNED_SHA" ]; then
             IMPORT_ARGS+=(--pinned-sha256 "$PINNED_SHA")
           fi
-          modelgate baseline import "${IMPORT_ARGS[@]}"
+          predgate baseline import "${IMPORT_ARGS[@]}"
         fi
 
         if [ -n "${GITHUB_OUTPUT:-}" ]; then
@@ -193,9 +193,9 @@ runs:
 
         set +e
         if [ -n "$PR_NUM" ]; then
-          modelgate run --config "${{ inputs.config }}" --output "${{ inputs.output-dir }}" --branch "$BRANCH" --pr "$PR_NUM"
+          predgate run --config "${{ inputs.config }}" --output "${{ inputs.output-dir }}" --branch "$BRANCH" --pr "$PR_NUM"
         else
-          modelgate run --config "${{ inputs.config }}" --output "${{ inputs.output-dir }}" --branch "$BRANCH"
+          predgate run --config "${{ inputs.config }}" --output "${{ inputs.output-dir }}" --branch "$BRANCH"
         fi
         GATE_EXIT=$?
         set -e
@@ -214,7 +214,7 @@ runs:
         fi
 
         if [ "${{ inputs.fail-on-verdict }}" = "true" ] && [ "$STATUS" = "fail" ]; then
-          echo "::error::ModelGate quality gate failed: $SUMMARY"
+          echo "::error::PredGate quality gate failed: $SUMMARY"
           exit 1
         fi
         exit 0

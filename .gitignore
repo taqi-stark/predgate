@@ -43,7 +43,9 @@ coverage.xml
 *.sqlite3
 mlruns/
 mlflow.db
+predgate.db
 modelgate.db
+predgate_output/
 modelgate_output/
 
 # Frontend / Node

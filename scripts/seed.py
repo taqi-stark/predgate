@@ -1,8 +1,8 @@
-"""Seed script for ModelGate Docker Compose environment.
+"""Seed script for PredGate Docker Compose environment.
 
 Waits for API and MLflow services to become healthy, generates demo data,
 imports the persisted champion baseline into MLflow, provisions an ephemeral
-runner token, and executes ModelGate quality checks so demo runs appear in
+runner token, and executes PredGate quality checks so demo runs appear in
 the API, dashboard, and MLflow registry.
 """
 
@@ -16,8 +16,8 @@ from pathlib import Path
 import httpx
 from sqlmodel import Session, SQLModel
 
-from modelgate.api.main import engine
-from modelgate.auth import create_user
+from predgate.api.main import engine
+from predgate.auth import create_user
 
 API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
 MLFLOW_URL = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000").rstrip("/")
@@ -40,7 +40,7 @@ def wait_for_service(url: str, name: str, max_retries: int = 45) -> bool:
 
 def _provision_seed_token() -> str:
     """Create or rotate an ephemeral engineer token for the seed runner (no default static token)."""
-    env_token = os.getenv("MODELGATE_API_TOKEN", "").strip()
+    env_token = os.getenv("PREDGATE_API_TOKEN", "").strip()
     if env_token:
         return env_token
     SQLModel.metadata.create_all(engine)
@@ -50,7 +50,7 @@ def _provision_seed_token() -> str:
 
 
 def main() -> None:
-    wait_for_service(API_URL, "ModelGate API")
+    wait_for_service(API_URL, "PredGate API")
     wait_for_service(MLFLOW_URL, "MLflow Server")
 
     if not Path("data/train.csv").exists():
@@ -61,18 +61,18 @@ def main() -> None:
 
     print("\n2. Importing persisted champion baseline into MLflow...", flush=True)
     subprocess.run(
-        ["modelgate", "baseline", "import", "--config", "modelgate.yaml", "--dir", "champion"],
+        ["predgate", "baseline", "import", "--config", "predgate.yaml", "--dir", "champion"],
         check=False,
     )
 
     print(
-        "\n3. Provisioning ephemeral seed runner token & executing ModelGate quality gate...",
+        "\n3. Provisioning ephemeral seed runner token & executing PredGate quality gate...",
         flush=True,
     )
     token = _provision_seed_token()
-    run_env = {**os.environ, "API_URL": API_URL, "MODELGATE_API_TOKEN": token}
+    run_env = {**os.environ, "API_URL": API_URL, "PREDGATE_API_TOKEN": token}
     subprocess.run(
-        ["modelgate", "run", "--config", "modelgate.yaml", "--branch", "main"],
+        ["predgate", "run", "--config", "predgate.yaml", "--branch", "main"],
         env=run_env,
         check=False,
     )

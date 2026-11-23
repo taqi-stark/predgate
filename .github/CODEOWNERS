@@ -1,4 +1,4 @@
 # Champion baseline artifacts require explicit approval from Code Owners via GitHub branch protection.
 # Replace @your-org/<team> with your GitHub organization team (@org/team) or individual handle (@username).
-/champion/ @your-org/modelgate-admins @your-org/ml-reviewers
-/champion.dvc @your-org/modelgate-admins @your-org/ml-reviewers
+/champion/ @your-org/predgate-admins @your-org/ml-reviewers
+/champion.dvc @your-org/predgate-admins @your-org/ml-reviewers

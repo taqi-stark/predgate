@@ -16,14 +16,14 @@ export default function BenchmarkPage() {
     return (
       <div className="empty-state">
         <h3>No benchmark results</h3>
-        <p>Run <code>modelgate bench</code> to generate the fault injection benchmark.</p>
+        <p>Run <code>predgate bench</code> to generate the fault injection benchmark.</p>
       </div>
     );
   }
 
   const chartData = Object.entries(data.summary).map(([fault, s]: [string, any]) => ({
     name: fault.replace('_', ' '),
-    ModelGate: Math.round(s.modelgate_detection_rate * 100),
+    PredGate: Math.round(s.predgate_detection_rate * 100),
     Baseline: Math.round(s.baseline_detection_rate * 100),
   }));
 
@@ -31,7 +31,7 @@ export default function BenchmarkPage() {
     <div>
       <h1 className="page-title">Benchmark</h1>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 24 }}>
-        Fault injection benchmark comparing ModelGate vs accuracy-only baseline.
+        Fault injection benchmark comparing PredGate vs accuracy-only baseline.
       </p>
 
       {/* Chart */}
@@ -47,7 +47,7 @@ export default function BenchmarkPage() {
                              borderRadius: 8, color: 'var(--text-primary)' }}
             />
             <Legend />
-            <Bar dataKey="ModelGate" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="PredGate" fill="#3b82f6" radius={[4, 4, 0, 0]} />
             <Bar dataKey="Baseline" fill="#6b7280" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -57,7 +57,7 @@ export default function BenchmarkPage() {
       <table className="data-table">
         <thead>
           <tr>
-            <th>Fault</th><th>Description</th><th>ModelGate</th>
+            <th>Fault</th><th>Description</th><th>PredGate</th>
             <th>Baseline (Acc)</th><th>Trials</th><th>Winner</th>
           </tr>
         </thead>
@@ -65,15 +65,15 @@ export default function BenchmarkPage() {
           {Object.entries(data.summary).map(([fault, s]: [string, any]) => {
             const isNoop = fault === 'noop';
             const mgWins = isNoop
-              ? s.modelgate_detection_rate <= s.baseline_detection_rate
-              : s.modelgate_wins;
+              ? s.predgate_detection_rate <= s.baseline_detection_rate
+              : s.predgate_wins;
 
             return (
               <tr key={fault}>
                 <td style={{ fontWeight: 600 }}>{fault}</td>
                 <td style={{ color: 'var(--text-secondary)' }}>{s.description}</td>
                 <td className="mono">
-                  {(s.modelgate_detection_rate * 100).toFixed(0)}%
+                  {(s.predgate_detection_rate * 100).toFixed(0)}%
                   {isNoop && ' FP'}
                 </td>
                 <td className="mono">
@@ -83,7 +83,7 @@ export default function BenchmarkPage() {
                 <td className="mono">{s.n_trials}</td>
                 <td>
                   {mgWins
-                    ? <span style={{ color: 'var(--pass)' }}>✅ ModelGate</span>
+                    ? <span style={{ color: 'var(--pass)' }}>✅ PredGate</span>
                     : <span style={{ color: 'var(--text-muted)' }}>Baseline</span>
                   }
                 </td>

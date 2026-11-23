@@ -1,4 +1,4 @@
-"""Unit tests for ModelGate FastAPI endpoints."""
+"""Unit tests for PredGate FastAPI endpoints."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel
 
-from modelgate.api.main import app, engine
-from modelgate.auth import create_user
+from predgate.api.main import app, engine
+from predgate.auth import create_user
 
 
 @pytest.fixture(name="client")
@@ -124,7 +124,7 @@ def test_settings_endpoints(client: TestClient) -> None:
 def test_slices_compare_models_bench_and_users_endpoints(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MODELGATE_ADMIN_TOKEN", "env-boot-token-123")
+    monkeypatch.setenv("PREDGATE_ADMIN_TOKEN", "env-boot-token-123")
     # Create two runs (one with slices check, one fail run)
     run1 = client.post(
         "/runs",

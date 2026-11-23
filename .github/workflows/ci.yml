@@ -32,7 +32,7 @@ jobs:
         run: ruff format --check src/ tests/
 
       - name: Mypy — type check
-        run: mypy src/modelgate --ignore-missing-imports
+        run: mypy src/predgate --ignore-missing-imports
 
   test:
     name: Tests & Coverage
@@ -53,7 +53,7 @@ jobs:
         run: |
           pytest tests/unit/ -v \
             -o addopts="" \
-            --cov=modelgate \
+            --cov=predgate \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-fail-under=85

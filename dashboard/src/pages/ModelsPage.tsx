@@ -12,7 +12,7 @@ export default function ModelsPage() {
   const [copyText, setCopyText] = useState('');
 
   const handleReproduce = (runId: number) => {
-    const cmd = `modelgate reproduce ${runId}`;
+    const cmd = `predgate reproduce ${runId}`;
     navigator.clipboard.writeText(cmd).then(() => {
       setCopyText(`Copied: ${cmd}`);
       setTimeout(() => setCopyText(''), 2000);
@@ -35,7 +35,7 @@ export default function ModelsPage() {
       ) : models.length === 0 ? (
         <div className="empty-state">
           <h3>No models registered</h3>
-          <p>Run <code>modelgate run</code> to create and register models.</p>
+          <p>Run <code>predgate run</code> to create and register models.</p>
         </div>
       ) : (
         <table className="data-table">

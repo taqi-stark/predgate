@@ -1,4 +1,4 @@
-"""Tests for the ModelGate configuration loader."""
+"""Tests for the PredGate configuration loader."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from modelgate.config import (
-    ModelGateConfig,
+from predgate.config import (
+    PredGateConfig,
     load_config,
 )
 
@@ -83,7 +83,7 @@ class TestLoadConfig:
 
     def test_load_valid_config(self, tmp_path: Path) -> None:
         """Test loading a complete, valid config file."""
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(VALID_YAML)
 
         config = load_config(config_file)
@@ -98,7 +98,7 @@ class TestLoadConfig:
 
     def test_checks_loaded(self, tmp_path: Path) -> None:
         """Test that all check configs are properly loaded."""
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(VALID_YAML)
 
         config = load_config(config_file)
@@ -120,7 +120,7 @@ class TestLoadConfig:
 
     def test_verdict_config(self, tmp_path: Path) -> None:
         """Test verdict configuration."""
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(VALID_YAML)
 
         config = load_config(config_file)
@@ -130,7 +130,7 @@ class TestLoadConfig:
 
     def test_minimal_config(self, tmp_path: Path) -> None:
         """Test loading a minimal config with all defaults."""
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(MINIMAL_YAML)
 
         config = load_config(config_file)
@@ -147,11 +147,11 @@ class TestLoadConfig:
     def test_file_not_found(self) -> None:
         """Test that missing config file raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError):
-            load_config("/nonexistent/path/modelgate.yaml")
+            load_config("/nonexistent/path/predgate.yaml")
 
     def test_invalid_seed(self, tmp_path: Path) -> None:
         """Test that a negative seed is rejected."""
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(
             textwrap.dedent("""\
             project: test
@@ -171,7 +171,7 @@ class TestLoadConfig:
         """Test that missing required fields raise validation errors."""
         from pydantic import ValidationError
 
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text("project: test\n")
 
         with pytest.raises(ValidationError):
@@ -181,7 +181,7 @@ class TestLoadConfig:
         """Test that invalid task type is rejected."""
         from pydantic import ValidationError
 
-        config_file = tmp_path / "modelgate.yaml"
+        config_file = tmp_path / "predgate.yaml"
         config_file.write_text(
             textwrap.dedent("""\
             project: test
@@ -199,12 +199,12 @@ class TestLoadConfig:
             load_config(config_file)
 
 
-class TestModelGateConfig:
+class TestPredGateConfig:
     """Direct model tests."""
 
     def test_roundtrip_dict(self) -> None:
         """Test config can be serialized and deserialized."""
-        config = ModelGateConfig(
+        config = PredGateConfig(
             project="test",
             seed=42,
             model={"entrypoint": "train.py:build"},
@@ -212,7 +212,7 @@ class TestModelGateConfig:
         )
 
         d = config.model_dump()
-        config2 = ModelGateConfig(**d)
+        config2 = PredGateConfig(**d)
 
         assert config.project == config2.project
         assert config.seed == config2.seed

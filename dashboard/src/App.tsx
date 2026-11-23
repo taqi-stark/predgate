@@ -34,7 +34,7 @@ function App() {
     <BrowserRouter>
       <div className="sidebar">
         <div className="sidebar-logo">
-          <span>⊞ ModelGate</span>
+          <span>⊞ PredGate</span>
         </div>
         <nav className="sidebar-nav">
           <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} end>

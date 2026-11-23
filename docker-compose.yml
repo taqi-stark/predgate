@@ -6,15 +6,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - modelgate-data:/app/data
-      - modelgate-db:/app/db
+      - predgate-data:/app/data
+      - predgate-db:/app/db
       - mlflow-data:/mlflow
     environment:
-      - DATABASE_URL=sqlite:////app/db/modelgate.db
+      - DATABASE_URL=sqlite:////app/db/predgate.db
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     depends_on:
       - mlflow
-    command: uvicorn modelgate.api.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn predgate.api.main:app --host 0.0.0.0 --port 8000
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.9.2
@@ -46,12 +46,12 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     volumes:
-      - modelgate-data:/app/data
-      - modelgate-db:/app/db
+      - predgate-data:/app/data
+      - predgate-db:/app/db
       - mlflow-data:/mlflow
     environment:
       - API_URL=http://api:8000
-      - DATABASE_URL=sqlite:////app/db/modelgate.db
+      - DATABASE_URL=sqlite:////app/db/predgate.db
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     depends_on:
       - api
@@ -59,6 +59,6 @@ services:
     command: python scripts/seed.py
 
 volumes:
-  modelgate-data:
-  modelgate-db:
+  predgate-data:
+  predgate-db:
   mlflow-data:

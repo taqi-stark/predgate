@@ -1,10 +1,10 @@
-"""Unit tests for ModelGate fault injection benchmark."""
+"""Unit tests for PredGate fault injection benchmark."""
 
 from __future__ import annotations
 
 import pandas as pd
 
-from modelgate.benchmark import FAULT_DESCRIPTIONS, _generate_data, inject_fault, run_single_trial
+from predgate.benchmark import FAULT_DESCRIPTIONS, _generate_data, inject_fault, run_single_trial
 
 
 def test_generate_data() -> None:
@@ -30,7 +30,7 @@ def test_inject_faults() -> None:
 def test_run_single_trial_noop() -> None:
     res = run_single_trial("noop", seed=42)
     assert res["fault_type"] == "noop"
-    assert "modelgate_detected" in res
+    assert "predgate_detected" in res
     assert "baseline_detected" in res
 
 
@@ -38,7 +38,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     from rich.console import Console
     from sklearn.linear_model import LogisticRegression
 
-    from modelgate.benchmark import (
+    from predgate.benchmark import (
         GroupThresholdModel,
         _generate_benchmark_markdown,
         run_benchmark,
@@ -65,12 +65,12 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     md_path = tmp_path / "bench.md"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "modelgate.benchmark.run_single_trial",
+        "predgate.benchmark.run_single_trial",
         lambda fault, seed: {
             "fault_type": fault,
             "seed": seed,
-            "modelgate_detected": fault != "noop",
-            "modelgate_status": "fail" if fault != "noop" else "pass",
+            "predgate_detected": fault != "noop",
+            "predgate_status": "fail" if fault != "noop" else "pass",
             "baseline_detected": False,
             "champion_acc": 0.9,
             "candidate_acc": 0.9,
@@ -85,7 +85,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     # Verify generate_benchmark_markdown_from_json renders public fairness section purely from JSON
     import json
 
-    from modelgate.benchmark import generate_benchmark_markdown_from_json
+    from predgate.benchmark import generate_benchmark_markdown_from_json
 
     json_file = tmp_path / "custom_bench.json"
     md_out = tmp_path / "custom_bench.md"

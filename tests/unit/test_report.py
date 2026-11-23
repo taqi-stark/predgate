@@ -1,10 +1,10 @@
-"""Unit tests for ModelGate report builder."""
+"""Unit tests for PredGate report builder."""
 
 from __future__ import annotations
 
-from modelgate.lineage import LineageInfo
-from modelgate.report import build_html_report, build_json_payload, build_pr_comment
-from modelgate.verdict import CheckResult, compute_verdict
+from predgate.lineage import LineageInfo
+from predgate.report import build_html_report, build_json_payload, build_pr_comment
+from predgate.verdict import CheckResult, compute_verdict
 
 
 def test_build_pr_comment() -> None:
@@ -31,7 +31,7 @@ def test_build_pr_comment() -> None:
     verdict = compute_verdict(results)
     comment = build_pr_comment(verdict, candidate_sha="a1b2c3d", seed=42, data_hash="9f3a123")
 
-    assert "ModelGate verdict: FAIL" in comment
+    assert "PredGate verdict: FAIL" in comment
     assert "Candidate" in comment
     assert "Data Contract" in comment
     assert "Drift" in comment
@@ -50,7 +50,7 @@ def test_build_html_report() -> None:
     html = build_html_report(verdict, lineage, project="test-proj")
 
     assert "<!DOCTYPE html>" in html
-    assert "ModelGate Report" in html
+    assert "PredGate Report" in html
     assert "test-proj" in html
 
 

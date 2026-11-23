@@ -102,7 +102,7 @@ export default function RunsPage() {
       ) : filtered.length === 0 ? (
         <div className="empty-state">
           <h3>No runs yet</h3>
-          <p>Run <code>modelgate run</code> to create your first quality gate run.</p>
+          <p>Run <code>predgate run</code> to create your first quality gate run.</p>
         </div>
       ) : (
         <table className="data-table">

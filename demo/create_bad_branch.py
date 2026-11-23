@@ -1,6 +1,6 @@
-"""Script to create a deliberately bad model branch for testing ModelGate.
+"""Script to create a deliberately bad model branch for testing PredGate.
 
-Injects various faults to demonstrate that ModelGate catches them.
+Injects various faults to demonstrate that PredGate catches them.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Unit tests for ModelGate CLI."""
+"""Unit tests for PredGate CLI."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from modelgate.cli import app
+from predgate.cli import app
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ def test_cli_init() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         result = runner.invoke(app, ["init", tmpdir])
         assert result.exit_code == 0
-        assert (Path(tmpdir) / "modelgate.yaml").exists()
+        assert (Path(tmpdir) / "predgate.yaml").exists()
         assert (Path(tmpdir) / "demo" / "train.py").exists()
 
         # Running again reports already exists
@@ -40,9 +40,9 @@ def test_cli_run_missing_config() -> None:
 
 
 def test_cli_run_success(monkeypatch) -> None:
-    # Test modelgate run with a passing mock
-    from modelgate.loader import LineageInfo, LoadResult
-    from modelgate.verdict import CheckResult, Verdict
+    # Test predgate run with a passing mock
+    from predgate.loader import LineageInfo, LoadResult
+    from predgate.verdict import CheckResult, Verdict
 
     dummy_lineage = LineageInfo(
         git_sha="abcdef123456",
@@ -79,50 +79,48 @@ def test_cli_run_success(monkeypatch) -> None:
     )
 
     monkeypatch.setattr(
-        "modelgate.loader.load_candidate_and_champion", lambda cfg: dummy_load_result
+        "predgate.loader.load_candidate_and_champion", lambda cfg: dummy_load_result
     )
     monkeypatch.setattr(
-        "modelgate.checks.data_contract.run_data_contract_check",
+        "predgate.checks.data_contract.run_data_contract_check",
         lambda *args, **kwargs: dummy_verdict.check_results[0],
     )
     monkeypatch.setattr(
-        "modelgate.checks.drift.run_drift_check",
+        "predgate.checks.drift.run_drift_check",
         lambda *args, **kwargs: dummy_verdict.check_results[1],
     )
     monkeypatch.setattr(
-        "modelgate.checks.leakage.run_leakage_check",
+        "predgate.checks.leakage.run_leakage_check",
         lambda *args, **kwargs: CheckResult(name="leakage", status="pass", summary="Passed"),
     )
     monkeypatch.setattr(
-        "modelgate.checks.label_shift.run_label_shift_check",
+        "predgate.checks.label_shift.run_label_shift_check",
         lambda *args, **kwargs: CheckResult(name="label_shift", status="pass", summary="Passed"),
     )
     monkeypatch.setattr(
-        "modelgate.checks.slices.run_slices_check",
+        "predgate.checks.slices.run_slices_check",
         lambda *args, **kwargs: dummy_verdict.check_results[2],
     )
     monkeypatch.setattr(
-        "modelgate.checks.behavioral.run_behavioral_check",
+        "predgate.checks.behavioral.run_behavioral_check",
         lambda *args, **kwargs: dummy_verdict.check_results[3],
     )
     monkeypatch.setattr(
-        "modelgate.checks.budgets.run_budgets_check",
+        "predgate.checks.budgets.run_budgets_check",
         lambda *args, **kwargs: dummy_verdict.check_results[4],
     )
     monkeypatch.setattr(
-        "modelgate.checks.fairness.run_fairness_check",
+        "predgate.checks.fairness.run_fairness_check",
         lambda *args, **kwargs: dummy_verdict.check_results[5],
     )
+    monkeypatch.setattr("predgate.verdict.compute_verdict", lambda results, cfg=None: dummy_verdict)
     monkeypatch.setattr(
-        "modelgate.verdict.compute_verdict", lambda results, cfg=None: dummy_verdict
-    )
-    monkeypatch.setattr(
-        "modelgate.registry.log_run_to_mlflow", lambda *args, **kwargs: "run-test-123"
+        "predgate.registry.log_run_to_mlflow", lambda *args, **kwargs: "run-test-123"
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = Path(tmpdir) / "output"
-        result = runner.invoke(app, ["run", "--config", "modelgate.yaml", "--output", str(out_dir)])
+        result = runner.invoke(app, ["run", "--config", "predgate.yaml", "--output", str(out_dir)])
         assert result.exit_code == 0
         assert (out_dir / "verdict.json").exists()
         assert (out_dir / "pr_comment.md").exists()
@@ -139,7 +137,7 @@ def test_cli_compare() -> None:
 
 def test_cli_promote_success(monkeypatch) -> None:
     monkeypatch.setattr(
-        "modelgate.registry.promote_to_champion",
+        "predgate.registry.promote_to_champion",
         lambda project, run_id, alias="champion", tracking_uri=None: True,
     )
     result = runner.invoke(app, ["promote", "run-123"])
@@ -149,7 +147,7 @@ def test_cli_promote_success(monkeypatch) -> None:
 
 def test_cli_promote_failure(monkeypatch) -> None:
     monkeypatch.setattr(
-        "modelgate.registry.promote_to_champion",
+        "predgate.registry.promote_to_champion",
         lambda project, run_id, alias="champion", tracking_uri=None: False,
     )
     result = runner.invoke(app, ["promote", "run-failed"])
@@ -179,8 +177,8 @@ def test_cli_reproduce_success(monkeypatch) -> None:
 def test_cli_run_fail_verdict_and_invalid_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from modelgate.loader import LineageInfo, LoadResult
-    from modelgate.verdict import CheckResult, Reason, Verdict
+    from predgate.loader import LineageInfo, LoadResult
+    from predgate.verdict import CheckResult, Reason, Verdict
 
     bad_cfg = tmp_path / "bad.yaml"
     bad_cfg.write_text("seed: -5\n")
@@ -189,10 +187,10 @@ def test_cli_run_fail_verdict_and_invalid_config(
 
     # Load failure
     monkeypatch.setattr(
-        "modelgate.loader.load_candidate_and_champion",
+        "predgate.loader.load_candidate_and_champion",
         lambda cfg: (_ for _ in ()).throw(RuntimeError("load crash")),
     )
-    res_crash = runner.invoke(app, ["run", "--config", "modelgate.yaml"])
+    res_crash = runner.invoke(app, ["run", "--config", "predgate.yaml"])
     assert res_crash.exit_code == 1
 
     # Failing verdict with reasons and API post
@@ -214,26 +212,26 @@ def test_cli_run_fail_verdict_and_invalid_config(
         lineage=dummy_lineage,
         is_first_run=True,
     )
-    monkeypatch.setattr("modelgate.loader.load_candidate_and_champion", lambda cfg: dummy_load)
+    monkeypatch.setattr("predgate.loader.load_candidate_and_champion", lambda cfg: dummy_load)
     for mod_fn in [
-        "modelgate.checks.data_contract.run_data_contract_check",
-        "modelgate.checks.drift.run_drift_check",
-        "modelgate.checks.leakage.run_leakage_check",
-        "modelgate.checks.label_shift.run_label_shift_check",
-        "modelgate.checks.slices.run_slices_check",
-        "modelgate.checks.behavioral.run_behavioral_check",
-        "modelgate.checks.budgets.run_budgets_check",
-        "modelgate.checks.fairness.run_fairness_check",
+        "predgate.checks.data_contract.run_data_contract_check",
+        "predgate.checks.drift.run_drift_check",
+        "predgate.checks.leakage.run_leakage_check",
+        "predgate.checks.label_shift.run_label_shift_check",
+        "predgate.checks.slices.run_slices_check",
+        "predgate.checks.behavioral.run_behavioral_check",
+        "predgate.checks.budgets.run_budgets_check",
+        "predgate.checks.fairness.run_fairness_check",
     ]:
         monkeypatch.setattr(
             mod_fn, lambda *a, **kw: CheckResult(name="c", status="fail", summary="bad")
         )
-    monkeypatch.setattr("modelgate.verdict.compute_verdict", lambda results, cfg=None: fail_verdict)
-    monkeypatch.setattr("modelgate.registry.log_run_to_mlflow", lambda *a, **kw: "run-fail-1")
+    monkeypatch.setattr("predgate.verdict.compute_verdict", lambda results, cfg=None: fail_verdict)
+    monkeypatch.setattr("predgate.registry.log_run_to_mlflow", lambda *a, **kw: "run-fail-1")
     monkeypatch.setattr("httpx.post", lambda *a, **kw: MagicMock(status_code=200))
 
     out_dir = tmp_path / "fail_out"
-    res_fail = runner.invoke(app, ["run", "--config", "modelgate.yaml", "--output", str(out_dir)])
+    res_fail = runner.invoke(app, ["run", "--config", "predgate.yaml", "--output", str(out_dir)])
     assert res_fail.exit_code == 1
     assert "FAIL" in res_fail.stdout
 
@@ -261,14 +259,14 @@ def test_cli_compare_and_promote_api_branches(monkeypatch: pytest.MonkeyPatch) -
 def test_cli_bench_serve_baseline_and_users(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("modelgate.benchmark.run_benchmark", lambda console: {})
+    monkeypatch.setattr("predgate.benchmark.run_benchmark", lambda console: {})
     assert runner.invoke(app, ["bench"]).exit_code == 0
 
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)
     assert runner.invoke(app, ["serve", "--port", "8123"]).exit_code == 0
 
     monkeypatch.setattr(
-        "modelgate.registry.export_champion_baseline",
+        "predgate.registry.export_champion_baseline",
         lambda cfg, baseline_dir="champion": {
             "baseline_dir": str(baseline_dir),
             "metadata": {"source": "mlflow", "model_sha256": "abcdef1234567890"},
@@ -278,7 +276,7 @@ def test_cli_bench_serve_baseline_and_users(
     assert runner.invoke(app, ["baseline", "export"]).exit_code == 0
 
     monkeypatch.setattr(
-        "modelgate.registry.import_champion_baseline",
+        "predgate.registry.import_champion_baseline",
         lambda cfg, baseline_dir="champion": {
             "baseline_dir": str(baseline_dir),
             "run_id": "r1",
@@ -290,7 +288,7 @@ def test_cli_bench_serve_baseline_and_users(
 
     # baseline verify (valid and tampered)
     monkeypatch.setattr(
-        "modelgate.registry.verify_champion_integrity",
+        "predgate.registry.verify_champion_integrity",
         lambda **kw: {
             "verified": True,
             "baseline_dir": str(kw.get("baseline_dir", "champion")),
@@ -305,7 +303,7 @@ def test_cli_bench_serve_baseline_and_users(
     def _fail_verify(**kw: object) -> dict[str, object]:
         raise ValueError("Champion model SHA-256 mismatch")
 
-    monkeypatch.setattr("modelgate.registry.verify_champion_integrity", _fail_verify)
+    monkeypatch.setattr("predgate.registry.verify_champion_integrity", _fail_verify)
     res_bad_verify = runner.invoke(
         app, ["baseline", "verify", "--changed-file", "champion/model.pkl"]
     )

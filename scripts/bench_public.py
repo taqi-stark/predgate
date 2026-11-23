@@ -1,7 +1,7 @@
 """Reproducible public-dataset & synthetic fault-injection benchmark runner.
 
 Downloads UCI Adult (OpenML 'adult' v2) and UCI German Credit (OpenML 'credit-g' v1),
-runs both the synthetic 7-fault ModelGate benchmark and the 30-seed full fairness
+runs both the synthetic 7-fault PredGate benchmark and the 30-seed full fairness
 validation across Adult, German Credit, and Synthetic Credit with frozen defaults,
 writes docs/benchmark_results.json, and renders docs/benchmark.md strictly from
 that JSON file.
@@ -25,7 +25,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-from modelgate.benchmark import (
+from predgate.benchmark import (
     FAULT_DESCRIPTIONS,
     GroupThresholdModel,
     _generate_data,
@@ -34,9 +34,9 @@ from modelgate.benchmark import (
     run_single_trial,
     wilson_ci,
 )
-from modelgate.checks.fairness import run_fairness_check
-from modelgate.config import FairnessConfig
-from modelgate.stats import demographic_parity_diff
+from predgate.checks.fairness import run_fairness_check
+from predgate.config import FairnessConfig
+from predgate.stats import demographic_parity_diff
 
 PUBLIC_FAULTS: list[tuple[str, str]] = [
     ("fairness_threshold_shift", "`fairness_threshold_shift` (`τ=0.25`)"),
@@ -106,7 +106,7 @@ def _load_german_frame() -> pd.DataFrame:
 
 
 def _train_gbdt(X: pd.DataFrame, y: pd.Series, seed: int) -> Pipeline:
-    """Train a deterministic GBDT pipeline matching ModelGate's benchmark model family."""
+    """Train a deterministic GBDT pipeline matching PredGate's benchmark model family."""
     X_norm = X.copy()
     cat_cols = X_norm.select_dtypes(include=["object", "string", "category"]).columns.tolist()
     for c in cat_cols:
@@ -293,7 +293,7 @@ def _run_synth_fairness_seed(args: tuple[int, dict[str, Any]]) -> list[dict[str,
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run reproducible public & synthetic ModelGate benchmarks."
+        description="Run reproducible public & synthetic PredGate benchmarks."
     )
     parser.add_argument(
         "--n-seeds", type=int, default=30, help="Seeds per dataset/fault (default: 30)"
@@ -345,7 +345,7 @@ def main() -> None:
     for fault in SYNTHETIC_FAULTS:
         rows = [r for r in all_synth_results if r["fault_type"] == fault]
         n = len(rows)
-        mg_k = sum(1 for r in rows if r["modelgate_detected"])
+        mg_k = sum(1 for r in rows if r["predgate_detected"])
         bl_k = sum(1 for r in rows if r["baseline_detected"])
         mg_rate = mg_k / n if n else 0.0
         bl_rate = bl_k / n if n else 0.0
@@ -357,12 +357,12 @@ def main() -> None:
             "n_trials": n,
             "mg_detected": mg_k,
             "bl_detected": bl_k,
-            "modelgate_detection_rate": round(mg_rate, 3),
+            "predgate_detection_rate": round(mg_rate, 3),
             "baseline_detection_rate": round(bl_rate, 3),
-            "modelgate_ci_95": [round(mg_ci[0], 3), round(mg_ci[1], 3)],
+            "predgate_ci_95": [round(mg_ci[0], 3), round(mg_ci[1], 3)],
             "baseline_ci_95": [round(bl_ci[0], 3), round(bl_ci[1], 3)],
             "ci_95_overlap": ci_overlap,
-            "modelgate_wins": (mg_ci[0] > bl_ci[1]) if fault != "noop" else (mg_ci[1] < bl_ci[0]),
+            "predgate_wins": (mg_ci[0] > bl_ci[1]) if fault != "noop" else (mg_ci[1] < bl_ci[0]),
         }
         print(f"      {fault:22s}: MG {mg_k}/{n} ({mg_rate:.1%}) | BL {bl_k}/{n} ({bl_rate:.1%})")
 

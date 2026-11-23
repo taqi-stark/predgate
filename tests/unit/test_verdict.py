@@ -1,9 +1,9 @@
-"""Tests for the ModelGate verdict engine."""
+"""Tests for the PredGate verdict engine."""
 
 from __future__ import annotations
 
-from modelgate.config import VerdictConfig
-from modelgate.verdict import CheckResult, compute_verdict
+from predgate.config import VerdictConfig
+from predgate.verdict import CheckResult, compute_verdict
 
 
 class TestComputeVerdict:

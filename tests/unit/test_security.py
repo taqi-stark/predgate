@@ -12,15 +12,15 @@ import pandas as pd
 import pytest
 import yaml
 
-from modelgate.config import (
+from predgate.config import (
     ChampionConfig,
     DataConfig,
     MLflowConfig,
     ModelConfig,
-    ModelGateConfig,
+    PredGateConfig,
 )
-from modelgate.loader import compute_file_hash, load_candidate_and_champion
-from modelgate.registry import (
+from predgate.loader import compute_file_hash, load_candidate_and_champion
+from predgate.registry import (
     export_champion_baseline,
     import_champion_baseline,
     verify_champion_integrity,
@@ -29,7 +29,7 @@ from modelgate.registry import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _make_project(tmp_path: Path, call_log: Path) -> ModelGateConfig:
+def _make_project(tmp_path: Path, call_log: Path) -> PredGateConfig:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
@@ -53,7 +53,7 @@ def _make_project(tmp_path: Path, call_log: Path) -> ModelGateConfig:
         "    return DummyClassifier(strategy='most_frequent').fit(X, y)\n"
     )
 
-    return ModelGateConfig(
+    return PredGateConfig(
         project="sec-proj",
         seed=42,
         model=ModelConfig(entrypoint=f"{train_script}:build_model", task="classification"),
@@ -81,7 +81,7 @@ def test_no_custom_approval_bypass_in_code_or_workflows(
     sig = inspect.signature(verify_champion_integrity)
     assert "allow_champion_update" not in sig.parameters
 
-    workflow_text = (REPO_ROOT / ".github" / "workflows" / "modelgate.yml").read_text()
+    workflow_text = (REPO_ROOT / ".github" / "workflows" / "predgate.yml").read_text()
     action_text = (REPO_ROOT / "action.yml").read_text()
 
     for forbidden in (
@@ -137,11 +137,11 @@ def test_codeowners_handle_format() -> None:
 def test_workflow_and_action_fail_closed_on_missing_base_ref(tmp_path: Path) -> None:
     """Workflow and action.yml must not silence git fetch failures and must exit non-zero."""
     workflow_yaml = yaml.safe_load(
-        (REPO_ROOT / ".github" / "workflows" / "modelgate.yml").read_text()
+        (REPO_ROOT / ".github" / "workflows" / "predgate.yml").read_text()
     )
     action_yaml = yaml.safe_load((REPO_ROOT / "action.yml").read_text())
 
-    wf_steps = workflow_yaml["jobs"]["modelgate"]["steps"]
+    wf_steps = workflow_yaml["jobs"]["predgate"]["steps"]
     wf_setup = next(s for s in wf_steps if s.get("id") == "trusted_setup")["run"]
     wf_verify = next(s for s in wf_steps if s.get("id") == "verify_champion")["run"]
 
@@ -187,7 +187,7 @@ def test_workflow_and_action_fail_closed_on_missing_base_ref(tmp_path: Path) -> 
 
 def test_workflow_and_action_install_pinned_not_pr_head() -> None:
     """Workflow and action.yml must never pip install -e . from PR head before verifying."""
-    workflow_text = (REPO_ROOT / ".github" / "workflows" / "modelgate.yml").read_text()
+    workflow_text = (REPO_ROOT / ".github" / "workflows" / "predgate.yml").read_text()
     action_text = (REPO_ROOT / "action.yml").read_text()
 
     assert "pip install -e" not in workflow_text
@@ -200,7 +200,7 @@ def test_workflow_and_action_install_pinned_not_pr_head() -> None:
         "Generate demo data"
     )
     # In action.yml, baseline verify must happen BEFORE setup-data
-    assert action_text.index("modelgate baseline verify") < action_text.index("inputs.setup-data")
+    assert action_text.index("predgate baseline verify") < action_text.index("inputs.setup-data")
 
 
 def test_corrupt_pickle_raises_hard_error_no_silent_retrain(

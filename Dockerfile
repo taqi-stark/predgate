@@ -13,15 +13,15 @@ RUN pip install --no-cache-dir \
     "httpx>=0.25.0" \
     "rich>=13.0.0" \
     "psutil>=5.9.0" && \
-    echo "/app/src" > /usr/local/lib/python3.10/site-packages/_modelgate.pth && \
-    printf '#!/usr/bin/env python\nfrom modelgate.cli import app\napp()\n' > /usr/local/bin/modelgate && \
-    chmod +x /usr/local/bin/modelgate
+    echo "/app/src" > /usr/local/lib/python3.10/site-packages/_predgate.pth && \
+    printf '#!/usr/bin/env python\nfrom predgate.cli import app\napp()\n' > /usr/local/bin/predgate && \
+    chmod +x /usr/local/bin/predgate
 
 COPY . .
 
-# Generate demo data inside image (/app/data is persisted via named volume modelgate-data)
+# Generate demo data inside image (/app/data is persisted via named volume predgate-data)
 RUN python demo/train.py
 
 EXPOSE 8000
 
-CMD ["uvicorn", "modelgate.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "predgate.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

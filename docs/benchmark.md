@@ -1,37 +1,37 @@
-# ModelGate Benchmark Results
+# PredGate Benchmark Results
 
-Single source of truth for the ModelGate fault-injection benchmark, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json).
+Single source of truth for the PredGate fault-injection benchmark, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json).
 
 ## Reproducibility Metadata
 
 - **Command**: `python scripts/bench_public.py --n-seeds 30 --synth-start-seed 1000 --fairness-start-seed 5000`
 - **Commit Hash**: `df94431`
 - **Evaluated Seeds**: `1000..1029` (N=30: `1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029`)
-- **No-op False-Positive Rate (ModelGate)**: **0/30 (0.0% observed FP; Wilson 95% CI [0.0%, 11.4%], i.e. an 11.4% 95% upper bound at N=30)**
+- **No-op False-Positive Rate (PredGate)**: **0/30 (0.0% observed FP; Wilson 95% CI [0.0%, 11.4%], i.e. an 11.4% 95% upper bound at N=30)**
 - **No-op False-Positive Rate (Baseline)**: **0/30 (0.0% observed FP; Wilson 95% CI [0.0%, 11.4%], i.e. an 11.4% 95% upper bound at N=30)**
 
 ## Detection Rates (Synthetic Credit Benchmark, Seeds `1000..1029`)
 
 A winner is declared only when the 95% Wilson confidence intervals do not overlap; overlapping 95% CIs are reported as a statistical **Tie (overlapping 95% CIs)**.
 
-| Fault | Injected Defect | ModelGate (Count, Rate, Wilson 95% CI) | Baseline (Count, Rate, Wilson 95% CI) | Winner |
+| Fault | Injected Defect | PredGate (Count, Rate, Wilson 95% CI) | Baseline (Count, Rate, Wilson 95% CI) | Winner |
 |-------|-----------------|----------------------------------------|---------------------------------------|--------|
 | `feature_leakage` | Add a column derived from the target | 30/30 (100.0%, [88.6%, 100.0%]) | 30/30 (100.0%, [88.6%, 100.0%]) | **Tie (overlapping 95% CIs)** |
 | `label_shift` | Corrupt labels in one subgroup of the train set | 30/30 (100.0%, [88.6%, 100.0%]) | 28/30 (93.3%, [78.7%, 98.2%]) | **Tie (overlapping 95% CIs)** |
-| `degraded_slice` | Remove most of one subgroup from training data | 30/30 (100.0%, [88.6%, 100.0%]) | 0/30 (0.0%, [0.0%, 11.4%]) | **ModelGate** |
-| `schema_drift` | Change a column's scale or unit | 30/30 (100.0%, [88.6%, 100.0%]) | 17/30 (56.7%, [39.2%, 72.6%]) | **ModelGate** |
-| `latency_regression` | Swap in a much larger model | 30/30 (100.0%, [88.6%, 100.0%]) | 0/30 (0.0%, [0.0%, 11.4%]) | **ModelGate** |
-| `fairness_regression` | Bias sampling against one protected group | 30/30 (100.0%, [88.6%, 100.0%]) | 9/30 (30.0%, [16.7%, 47.9%]) | **ModelGate** |
+| `degraded_slice` | Remove most of one subgroup from training data | 30/30 (100.0%, [88.6%, 100.0%]) | 0/30 (0.0%, [0.0%, 11.4%]) | **PredGate** |
+| `schema_drift` | Change a column's scale or unit | 30/30 (100.0%, [88.6%, 100.0%]) | 17/30 (56.7%, [39.2%, 72.6%]) | **PredGate** |
+| `latency_regression` | Swap in a much larger model | 30/30 (100.0%, [88.6%, 100.0%]) | 0/30 (0.0%, [0.0%, 11.4%]) | **PredGate** |
+| `fairness_regression` | Bias sampling against one protected group | 30/30 (100.0%, [88.6%, 100.0%]) | 9/30 (30.0%, [16.7%, 47.9%]) | **PredGate** |
 | `noop` | Retrain with a different seed (should PASS) | 0/30 (0.0% FP, [0.0%, 11.4%]) | 0/30 (0.0% FP, [0.0%, 11.4%]) | **Tie (11.4% 95% CI upper bound)** |
 
 ## Baseline Definitions
 
 1. **Two-Sided Accuracy-Change Baseline (`|acc_champ - acc_cand| > 0.01`, shown in the table above)**: Flags any trial where overall test accuracy changes by more than 1 percentage point in either direction (drop or increase).
-2. **One-Sided Accuracy-Drop Baseline (`acc_champ - acc_cand > 0.01`)**: Flags only when overall test accuracy *drops* by more than 1 percentage point (misses `feature_leakage`, which artificially increases accuracy, while ModelGate's `run_leakage_check` catches it directly).
+2. **One-Sided Accuracy-Drop Baseline (`acc_champ - acc_cand > 0.01`)**: Flags only when overall test accuracy *drops* by more than 1 percentage point (misses `feature_leakage`, which artificially increases accuracy, while PredGate's `run_leakage_check` catches it directly).
 
 ## No-op False-Positive Rate & Upper Bound
 
-For the `noop` control (retraining the identical pipeline on clean data with candidate seed `s + 500`), ModelGate produced **0/30 (0.0%)** and the baseline produced **0/30 (0.0%)** observed false positives across seeds `1000..1029` (Wilson 95% CI `[0.0%, 11.4%]`).
+For the `noop` control (retraining the identical pipeline on clean data with candidate seed `s + 500`), PredGate produced **0/30 (0.0%)** and the baseline produced **0/30 (0.0%)** observed false positives across seeds `1000..1029` (Wilson 95% CI `[0.0%, 11.4%]`).
 
 ## Independent Fairness Validation on Public Datasets (30 Fresh Seeds `5000..5029`, Frozen Defaults)
 

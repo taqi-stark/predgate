@@ -1,4 +1,4 @@
-"""Unit tests for all 6 ModelGate checks."""
+"""Unit tests for all 6 PredGate checks."""
 
 from __future__ import annotations
 
@@ -11,15 +11,15 @@ from pandera.pandas import Check, Column, DataFrameSchema
 from sklearn.dummy import DummyClassifier
 from sklearn.linear_model import LogisticRegression
 
-from modelgate.checks.behavioral import run_behavioral_check
-from modelgate.checks.budgets import run_budgets_check
-from modelgate.checks.data_contract import run_data_contract_check
-from modelgate.checks.drift import run_drift_check
-from modelgate.checks.fairness import run_fairness_check
-from modelgate.checks.label_shift import run_label_shift_check
-from modelgate.checks.leakage import run_leakage_check
-from modelgate.checks.slices import run_slices_check
-from modelgate.config import (
+from predgate.checks.behavioral import run_behavioral_check
+from predgate.checks.budgets import run_budgets_check
+from predgate.checks.data_contract import run_data_contract_check
+from predgate.checks.drift import run_drift_check
+from predgate.checks.fairness import run_fairness_check
+from predgate.checks.label_shift import run_label_shift_check
+from predgate.checks.leakage import run_leakage_check
+from predgate.checks.slices import run_slices_check
+from predgate.config import (
     BehavioralConfig,
     BudgetConfig,
     DataContractConfig,
@@ -604,8 +604,8 @@ def test_fairness_default_relative_gate_and_power_note() -> None:
     """Default champion-vs-candidate gate does not fail on pre-existing DP if candidate does not widen it;
     opt-in enforce_absolute evaluates excess relative to champion's gap; small groups emit MDE/power note.
     """
-    from modelgate.report import build_html_report, build_pr_comment
-    from modelgate.verdict import compute_verdict
+    from predgate.report import build_html_report, build_pr_comment
+    from predgate.verdict import compute_verdict
 
     # Small group dataset: 15 males (all predicted 1), 15 females (all predicted 0) -> DP = 1.0
     df = pd.DataFrame(

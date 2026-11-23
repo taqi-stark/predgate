@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel
 
-from modelgate.api.main import app, engine
-from modelgate.auth import create_user
+from predgate.api.main import app, engine
+from predgate.auth import create_user
 
 
 @pytest.fixture(name="auth_env")

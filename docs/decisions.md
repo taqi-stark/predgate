@@ -1,6 +1,6 @@
-# ModelGate — Architecture Decision Records (ADRs)
+# PredGate — Architecture Decision Records (ADRs)
 
-This document captures the key architectural and design decisions made during the development of ModelGate, along with the context, options considered, and tradeoffs.
+This document captures the key architectural and design decisions made during the development of PredGate, along with the context, options considered, and tradeoffs.
 
 ---
 
@@ -10,7 +10,7 @@ This document captures the key architectural and design decisions made during th
 Machine learning monitoring tools (e.g., Evidently, Whylabs, Arize) traditionally focus on post-deployment batch monitoring in production. By the time drift or slice regressions are detected, damaged predictions have already affected end users.
 
 ### Decision
-ModelGate is built as a **pre-deployment gate** integrated directly into the CI/CD pull request lifecycle. Models cannot be merged to master or deployed without passing all 8 quality gate checks: data contract, feature drift, target leakage, subgroup label shift, slice regression, behavioral tests, performance budgets, and algorithmic fairness.
+PredGate is built as a **pre-deployment gate** integrated directly into the CI/CD pull request lifecycle. Models cannot be merged to master or deployed without passing all 8 quality gate checks: data contract, feature drift, target leakage, subgroup label shift, slice regression, behavioral tests, performance budgets, and algorithmic fairness.
 
 ### Consequences
 - **Positive**: Prevents silent regressions from ever reaching production; binds model evaluation to Git SHAs and PR commits.
@@ -24,7 +24,7 @@ ModelGate is built as a **pre-deployment gate** integrated directly into the CI/
 Static accuracy thresholds (e.g., `accuracy > 0.85`) fail to catch subtle regressions. Furthermore, natural sampling variance can trigger false alarms when testing minority slices.
 
 ### Decision
-ModelGate implements **paired bootstrap confidence intervals (CI)** comparing candidate models directly against the current champion model. A slice regression is only flagged if the drop is statistically significant at $\alpha = 0.05$ over $B=50$ to $B=1000$ bootstrap iterations.
+PredGate implements **paired bootstrap confidence intervals (CI)** comparing candidate models directly against the current champion model. A slice regression is only flagged if the drop is statistically significant at $\alpha = 0.05$ over $B=50$ to $B=1000$ bootstrap iterations.
 
 ### Consequences
 - **Positive**: Virtually eliminates false-positive alerts caused by noise on small demographic slices; provides statistically grounded pass/fail verdicts.
@@ -35,10 +35,10 @@ ModelGate implements **paired bootstrap confidence intervals (CI)** comparing ca
 ## ADR-003: Consolidated MLflow Tracking URI
 
 ### Context
-Early iterations of ModelGate stored MLflow artifacts across disparate local directories (`./mlruns`, `/tmp/mlruns`, subfolders), leading to fragmented experiment histories and broken UI dashboards.
+Early iterations of PredGate stored MLflow artifacts across disparate local directories (`./mlruns`, `/tmp/mlruns`, subfolders), leading to fragmented experiment histories and broken UI dashboards.
 
 ### Decision
-Consolidate MLflow tracking to a single configurable tracking URI specified in `modelgate.yaml` (defaulting to `file:./mlruns`), shared across the CLI, FastAPI backend, and Docker Compose services.
+Consolidate MLflow tracking to a single configurable tracking URI specified in `predgate.yaml` (defaulting to `file:./mlruns`), shared across the CLI, FastAPI backend, and Docker Compose services.
 
 ### Consequences
 - **Positive**: Single source of truth for all runs, metrics, artifacts (`verdict.json`, `report.html`), and model registries.
@@ -52,7 +52,7 @@ Consolidate MLflow tracking to a single configurable tracking URI specified in `
 Evaluating a model requires knowing the exact training and evaluation dataset used. Tracking large CSVs or Parquet files directly in Git bloats the repository.
 
 ### Decision
-Use **DVC (Data Version Control)** to manage `data/` via `.dvc` tracking files and SHA-256 data hashes. The CLI captures both `git_sha` and `dvc_hash` at run-time, allowing `modelgate reproduce --run-id <ID>` to pull the exact dataset and reproduce identical verdicts.
+Use **DVC (Data Version Control)** to manage `data/` via `.dvc` tracking files and SHA-256 data hashes. The CLI captures both `git_sha` and `dvc_hash` at run-time, allowing `predgate reproduce --run-id <ID>` to pull the exact dataset and reproduce identical verdicts.
 
 ### Consequences
 - **Positive**: Full audit trail and deterministic reproducibility for compliance and debugging.
@@ -77,10 +77,10 @@ Adopt **Pandera** for schema validation. Data contracts define strict column dty
 ## ADR-006: Reusable Composite GitHub Action (`action.yml`)
 
 ### Context
-Users should be able to integrate ModelGate into their GitHub workflows without manually copying complex bash scripts or python boilerplate.
+Users should be able to integrate PredGate into their GitHub workflows without manually copying complex bash scripts or python boilerplate.
 
 ### Decision
-Provide a reusable composite action in the repository root (`action.yml`) that installs dependencies, executes `modelgate run`, archives reports, and automatically comments on the pull request with a rich summary table.
+Provide a reusable composite action in the repository root (`action.yml`) that installs dependencies, executes `predgate run`, archives reports, and automatically comments on the pull request with a rich summary table.
 
 ### Consequences
 - **Positive**: 1-step adoption for GitHub Actions users; standardized comment formatting and error handling across teams.

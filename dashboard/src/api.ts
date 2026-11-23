@@ -63,7 +63,7 @@ export interface Model {
   is_champion: boolean;
 }
 
-const TOKEN_STORAGE_KEY = 'modelgate_api_token';
+const TOKEN_STORAGE_KEY = 'predgate_api_token';
 
 export function getApiToken(): string {
   return localStorage.getItem(TOKEN_STORAGE_KEY) || '';

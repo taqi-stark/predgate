@@ -1,7 +1,7 @@
 """Demo project: synthetic credit dataset generator and model trainer.
 
 Generates a synthetic credit risk dataset with meaningful slicing columns
-(region, age_bucket, gender) for demonstrating ModelGate checks.
+(region, age_bucket, gender) for demonstrating PredGate checks.
 """
 
 from __future__ import annotations

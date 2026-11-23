@@ -1,4 +1,4 @@
-"""Tests for the ModelGate statistics engine.
+"""Tests for the PredGate statistics engine.
 
 Includes unit tests and property-based tests with Hypothesis.
 """
@@ -9,7 +9,7 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from modelgate.stats import (
+from predgate.stats import (
     BootstrapResult,
     calibration_gap_diff,
     compute_psi,

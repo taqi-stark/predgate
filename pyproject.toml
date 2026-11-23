@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "modelgate"
+name = "predgate"
 version = "0.1.0"
 description = "CI/CD quality gate for machine learning models"
 readme = "README.md"
@@ -41,15 +41,15 @@ dev = [
 ]
 
 [project.scripts]
-modelgate = "modelgate.cli:app"
+predgate = "predgate.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/modelgate"]
+packages = ["src/predgate"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "--cov=modelgate --cov-report=term-missing"
+addopts = "--cov=predgate --cov-report=term-missing"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]

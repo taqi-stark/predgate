@@ -12,21 +12,21 @@ import pandas as pd
 import pytest
 from sklearn.dummy import DummyClassifier
 
-from modelgate.config import (
+from predgate.config import (
     ChampionConfig,
     DataConfig,
     MLflowConfig,
     ModelConfig,
-    ModelGateConfig,
+    PredGateConfig,
 )
-from modelgate.integrations.github.pr_bot import (
+from predgate.integrations.github.pr_bot import (
     COMMENT_MARKER,
     post_or_update_pr_comment,
     set_commit_status,
     verdict_to_github_state,
 )
-from modelgate.lineage import capture_lineage, load_lineage, save_lineage, verify_reproduction
-from modelgate.loader import (
+from predgate.lineage import capture_lineage, load_lineage, save_lineage, verify_reproduction
+from predgate.loader import (
     compute_file_hash,
     get_dvc_hash,
     get_git_sha,
@@ -35,7 +35,7 @@ from modelgate.loader import (
     load_candidate_and_champion,
     load_data,
 )
-from modelgate.registry import (
+from predgate.registry import (
     _get_active_tracking_uri,
     export_champion_baseline,
     get_reproduce_command,
@@ -44,10 +44,10 @@ from modelgate.registry import (
     promote_to_champion,
     verify_champion_integrity,
 )
-from modelgate.verdict import CheckResult, Verdict
+from predgate.verdict import CheckResult, Verdict
 
 
-def _make_tiny_project(tmp_path: Path) -> ModelGateConfig:
+def _make_tiny_project(tmp_path: Path) -> PredGateConfig:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
@@ -71,7 +71,7 @@ def _make_tiny_project(tmp_path: Path) -> ModelGateConfig:
         "    return DummyClassifier(strategy='most_frequent').fit(X, y)\n"
     )
 
-    return ModelGateConfig(
+    return PredGateConfig(
         project="tiny-proj",
         seed=42,
         model=ModelConfig(entrypoint=f"{train_script}:build_model", task="classification"),
@@ -99,7 +99,7 @@ def test_tracking_uri_resolution_and_reproduce_cmd(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
     assert _get_active_tracking_uri("sqlite:///custom.db") == "http://mlflow:5000"
-    assert get_reproduce_command("abc123") == "modelgate reproduce abc123"
+    assert get_reproduce_command("abc123") == "predgate reproduce abc123"
 
 
 def test_log_run_and_promote_mocked_mlflow(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,9 +164,9 @@ def test_export_and_import_champion_baseline(
 
     # Mock MLflow functions inside registry so export/import don't start real SQLite migrations
     monkeypatch.setattr(
-        "modelgate.registry.log_run_to_mlflow", lambda *args, **kwargs: "imported-run-1"
+        "predgate.registry.log_run_to_mlflow", lambda *args, **kwargs: "imported-run-1"
     )
-    monkeypatch.setattr("modelgate.registry.promote_to_champion", lambda *args, **kwargs: True)
+    monkeypatch.setattr("predgate.registry.promote_to_champion", lambda *args, **kwargs: True)
 
     exp_res = export_champion_baseline(cfg, baseline_dir=champ_dir)
     assert (champ_dir / "model.pkl").exists()
