@@ -178,18 +178,19 @@ def run(
         results.append(cr)
         _print_check_result(cr)
 
-    with console.status("[5/6] Performance budget check..."):
+    with console.status("[7/8] Performance budget check..."):
         cr = run_budgets_check(
             load_result.test_df,
             load_result.target_column,
             load_result.candidate_model,
             load_result.champion_model,
             cfg.checks.budgets,
+            seed=cfg.seed,
         )
         results.append(cr)
         _print_check_result(cr)
 
-    with console.status("[6/6] Fairness check..."):
+    with console.status("[8/8] Fairness check..."):
         cr = run_fairness_check(
             load_result.test_df,
             load_result.target_column,
@@ -577,15 +578,10 @@ def baseline_verify(
     changed_file: list[str] | None = typer.Option(
         None,
         "--changed-file",
-        help="File paths modified in the PR (repeatable); fails if champion/ is modified without approval",
-    ),
-    allow_champion_update: bool = typer.Option(
-        False,
-        "--allow-champion-update",
-        help="Allow PR modifications to champion/ (set only after CODEOWNERS approval)",
+        help="File paths modified in the PR (repeatable); fails closed if champion/ is modified",
     ),
 ) -> None:
-    """Verify champion baseline SHA-256 integrity and enforce PR modification guard."""
+    """Verify champion baseline SHA-256 integrity (fails closed on mismatch or missing manifest)."""
     from modelgate.registry import verify_champion_integrity
 
     try:
@@ -594,7 +590,6 @@ def baseline_verify(
             dvc_path=dvc_path,
             pinned_sha256=pinned_sha256,
             changed_files=changed_file or None,
-            allow_champion_update=allow_champion_update,
         )
         console.print(
             f"[green]✓ Champion baseline verified ({res['baseline_dir']}/)[/green]\n"

@@ -16,6 +16,12 @@ def test_build_pr_comment() -> None:
             name="drift", status="warn", summary="income PSI 0.14", metrics={"psi_max": 0.14}
         ),
         CheckResult(
+            name="leakage",
+            status="pass",
+            summary="Max |r| 0.12, max single-feature AUC 0.64",
+            metrics={"max_abs_corr": 0.12},
+        ),
+        CheckResult(
             name="slices",
             status="fail",
             summary="region=North F1 dropped 0.07",
@@ -30,6 +36,7 @@ def test_build_pr_comment() -> None:
     assert "Data Contract" in comment
     assert "Drift" in comment
     assert "Slices" in comment
+    assert r"Max \|r\| 0.12, max single-feature AUC 0.64" in comment
 
 
 def test_build_html_report() -> None:

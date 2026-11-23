@@ -116,10 +116,14 @@ behavioral:
     - feature: "income"
       direction: "increasing"
 
-# Resource and latency budgets (interleaved champion vs candidate ratio gate; absolute ms optional)
+# Resource and latency budgets (interleaved batched median ratio + paired bootstrap CI; absolute ms optional)
 budgets:
   enabled: true
   max_latency_ratio: 1.5
+  latency_samples: 20
+  latency_batch_size: 5
+  latency_confidence: 0.95
+  latency_n_bootstrap: 1000
   # p95_latency_ms: 100.0     # optional absolute ceiling in ms
   max_peak_mem_mb: 500.0
   max_model_mb: 50.0
@@ -141,7 +145,7 @@ label_shift:
   fail_delta: 0.10
   alpha: 0.01
 
-# Algorithmic fairness (champion-vs-candidate paired bootstrap gap CI default; absolute DP opt-in relative to champion)
+# Algorithmic fairness (paired bootstrap gap CI default + two-sided per-group selection-rate shift WARN; absolute DP opt-in relative to champion)
 fairness:
   enabled: true
   protected: ["gender"]
@@ -151,6 +155,8 @@ fairness:
   fail_at: 0.10
   max_gap_increase: 0.02
   fail_gap_increase: 0.05
+  selection_rate_shift_warn: 0.02
+  selection_rate_n_bootstrap: 1000
   min_group_size: 100
   min_group_positives: 30
   confidence: 0.95
@@ -171,25 +177,37 @@ on:
     paths:
       - 'src/**'
       - 'demo/**'
+      - 'champion/**'
+      - 'champion.dvc'
       - 'modelgate.yaml'
       - 'data/**'
 
 jobs:
-  gate:
+  modelgate:
+    name: Run ModelGate
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+      statuses: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run ModelGate Quality Gate
-        uses: ./action.yml
+        uses: ./
         with:
-          config-path: 'modelgate.yaml'
-          post-pr-comment: 'true'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          config: 'modelgate.yaml'
+          baseline-dir: 'champion'
+          setup-data: 'python demo/train.py'
 ```
+
+**Champion Integrity, Branch Protection & Fork PRs**:
+- **Fail-Closed Verification & Pinned Tooling**: Both `.github/workflows/modelgate.yml` and `action.yml` fetch `origin/${BASE_REF}` (exiting non-zero if fetch fails), install ModelGate from the trusted committed base branch (`git archive`) or an explicit pinned `modelgate-spec` (never `pip install -e .` on the PR head), and verify `champion/model.pkl` against the base-branch pinned SHA-256 before running any PR code.
+- **No Custom Approval Bypass**: Updates to `/champion/` and `/champion.dvc` are governed by GitHub Branch Protection + `.github/CODEOWNERS` (`@org/team` handles), not a spoofable workflow bypass flag.
+- Require the **`Run ModelGate`** GitHub Actions check run in branch protection (not solely the `modelgate` commit status) if your repository accepts pull requests from forks.
+- On fork PRs triggered by `on: pull_request`, GitHub automatically downgrades `GITHUB_TOKEN` to read-only (`contents: read`): `Run ModelGate` still verifies base-branch champion integrity, runs all 8 checks, fails the check run on regressions, and uploads `modelgate_output/report.html`, while `Post PR comment` and `Set commit status` gracefully emit warnings on HTTP 403 (`Resource not accessible by integration`) rather than crashing. Requiring `modelgate` commit status for fork PRs without a secondary `workflow_run` poster will leave passing fork PRs blocked waiting for that commit status.
 
 ---
 

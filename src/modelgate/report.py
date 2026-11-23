@@ -66,8 +66,9 @@ def build_pr_comment(
     lines.append("|---|---|---|")
     for cr in verdict.check_results:
         emoji = status_emoji.get(cr.status, "")
+        safe_summary = cr.summary.replace("|", "\\|").replace("\n", " ")
         lines.append(
-            f"| {cr.name.replace('_', ' ').title()} | {emoji} {cr.status.upper()} | {cr.summary} |"
+            f"| {cr.name.replace('_', ' ').title()} | {emoji} {cr.status.upper()} | {safe_summary} |"
         )
     lines.append("")
 

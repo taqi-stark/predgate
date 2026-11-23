@@ -261,57 +261,147 @@ def test_slices_check_no_champion_skip(
 def test_budgets_check_fail_latency() -> None:
     df = pd.DataFrame({"income": [50000.0], "default": [0]})
 
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
+
+        def advance(self, seconds: float) -> None:
+            self.now += seconds
+
+        def __call__(self) -> float:
+            return self.now
+
+    clock = FakeClock()
+
     class SlowModel:
         def predict(self, X: pd.DataFrame) -> np.ndarray:
-            import time
-
-            time.sleep(0.005)
+            clock.advance(0.005)  # deterministic 5.0ms per call
             return np.array([0])
 
     # Optional absolute ms ceiling enforced when explicitly set
-    cfg = BudgetConfig(enabled=True, p95_latency_ms=0.0001)
-    res = run_budgets_check(df, "default", SlowModel(), None, cfg)
+    cfg = BudgetConfig(enabled=True, p95_latency_ms=2.0, latency_samples=10, latency_batch_size=3)
+    res = run_budgets_check(df, "default", SlowModel(), None, cfg, seed=42, clock=clock)
     assert res.status == "fail"
     assert "p95" in res.summary
+    assert res.metrics["p95_ms"] == 5.0
 
     # When p95_latency_ms is None (default) and no champion is present, absolute ms does not fail
-    cfg_opt = BudgetConfig(enabled=True, p95_latency_ms=None)
-    res_opt = run_budgets_check(df, "default", SlowModel(), None, cfg_opt)
+    cfg_opt = BudgetConfig(
+        enabled=True, p95_latency_ms=None, latency_samples=10, latency_batch_size=3
+    )
+    res_opt = run_budgets_check(df, "default", SlowModel(), None, cfg_opt, seed=42, clock=clock)
     assert res_opt.status == "pass"
 
 
 def test_budgets_check_ratio_gate_same_job() -> None:
-    """Champion and candidate measured interleaved in the same job and gated on p95 ratio."""
+    """Deterministic paired median-ratio gate with injected clock and paired bootstrap CI."""
     df = pd.DataFrame({"income": [50000.0], "default": [0]})
 
-    class FastModel:
-        def predict(self, X: pd.DataFrame) -> np.ndarray:
-            import time
+    class FakeClock:
+        def __init__(self) -> None:
+            self.now = 0.0
 
-            time.sleep(0.0005)
+        def advance(self, seconds: float) -> None:
+            self.now += seconds
+
+        def __call__(self) -> float:
+            return self.now
+
+    class ScriptedModel:
+        def __init__(self, clock: FakeClock, durations_ms: list[float]) -> None:
+            self.clock = clock
+            self.durations_ms = durations_ms
+            self.idx = 0
+
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            d = self.durations_ms[self.idx % len(self.durations_ms)]
+            self.idx += 1
+            self.clock.advance(d / 1000.0)
             return np.array([0])
 
-    class SlowerModel:
-        def predict(self, X: pd.DataFrame) -> np.ndarray:
-            import time
-
-            time.sleep(0.0025)
-            return np.array([0])
-
-    # Ratio ~5x > 1.5x must FAIL even with no absolute p95_latency_ms set
-    cfg = BudgetConfig(enabled=True, max_latency_ratio=1.5, p95_latency_ms=None)
-    res_fail = run_budgets_check(df, "default", SlowerModel(), FastModel(), cfg)
+    # 1. Clear regression: candidate 2.5ms vs champion 1.0ms (ratio 2.5x, CI [2.5x, 2.5x] > 1.5x) -> FAIL
+    clock1 = FakeClock()
+    champ_fast = ScriptedModel(clock1, [1.0])
+    cand_slow = ScriptedModel(clock1, [2.5])
+    cfg_fail = BudgetConfig(
+        enabled=True,
+        max_latency_ratio=1.5,
+        p95_latency_ms=None,
+        latency_samples=20,
+        latency_batch_size=5,
+        latency_n_bootstrap=500,
+    )
+    res_fail = run_budgets_check(
+        df, "default", cand_slow, champ_fast, cfg_fail, seed=42, clock=clock1
+    )
     assert res_fail.status == "fail"
-    assert "latency ratio" in res_fail.summary
-    assert res_fail.metrics["latency_ratio"] > 1.5
-    assert "champion_p95_ms" in res_fail.metrics
+    assert "median latency ratio" in res_fail.summary
+    assert res_fail.metrics["median_latency_ratio"] == pytest.approx(2.5, abs=1e-3)
+    assert res_fail.metrics["latency_ratio_ci_lower"] > 1.5
+    assert "champion_p50_ms" in res_fail.metrics
 
-    # Similar speed models (~1.0x <= 2.0x) PASS
-    cfg_pass = BudgetConfig(enabled=True, max_latency_ratio=2.0, p95_latency_ms=None)
-    res_pass = run_budgets_check(df, "default", FastModel(), FastModel(), cfg_pass)
+    # 2. Equal speed models (ratio 1.0x <= 1.5x) -> PASS
+    clock2 = FakeClock()
+    res_pass = run_budgets_check(
+        df,
+        "default",
+        ScriptedModel(clock2, [1.0]),
+        ScriptedModel(clock2, [1.0]),
+        cfg_fail,
+        seed=42,
+        clock=clock2,
+    )
     assert res_pass.status == "pass"
     assert "vs champion" in res_pass.summary
-    assert res_pass.metrics["latency_ratio"] <= 2.0
+    assert res_pass.metrics["median_latency_ratio"] == pytest.approx(1.0, abs=1e-3)
+
+    # 3. Single outlier spike on champion (1 of 20 batches) must NOT break median ratio gate
+    clock3 = FakeClock()
+    champ_spike = ScriptedModel(clock3, [1.0] * 19 + [50.0])
+    cand_slow3 = ScriptedModel(clock3, [2.5])
+    res_robust = run_budgets_check(
+        df,
+        "default",
+        cand_slow3,
+        champ_spike,
+        BudgetConfig(
+            enabled=True,
+            max_latency_ratio=1.5,
+            p95_latency_ms=None,
+            latency_samples=20,
+            latency_batch_size=1,
+            latency_n_bootstrap=500,
+        ),
+        seed=42,
+        clock=clock3,
+    )
+    assert res_robust.status == "fail"
+    assert res_robust.metrics["median_latency_ratio"] == pytest.approx(2.5, abs=1e-3)
+
+    # 4. Borderline noisy slowdown (ratio > 1.5, CI lower > 1.0 but overlapping 1.5) -> WARN
+    clock4 = FakeClock()
+    champ_b = ScriptedModel(clock4, [1.0])
+    # Warmup consumes 5 calls; then 20 batches of size 1: 8 at 1.2ms, 12 at 1.7ms -> median 1.7x, CI overlaps 1.5
+    cand_b = ScriptedModel(clock4, [1.0] * 5 + [1.2] * 8 + [1.7] * 12)
+    res_warn = run_budgets_check(
+        df,
+        "default",
+        cand_b,
+        champ_b,
+        BudgetConfig(
+            enabled=True,
+            max_latency_ratio=1.5,
+            p95_latency_ms=None,
+            latency_samples=20,
+            latency_batch_size=1,
+            latency_n_bootstrap=500,
+        ),
+        seed=42,
+        clock=clock4,
+    )
+    assert res_warn.status == "warn"
+    assert res_warn.metrics["latency_ratio_ci_lower"] > 1.0
+    assert res_warn.metrics["latency_ratio_ci_lower"] <= 1.5
 
 
 class BigPicklableModel:
@@ -551,6 +641,153 @@ def test_fairness_default_relative_gate_and_power_note() -> None:
     html_doc = build_html_report(verdict)
     assert "minimum detectable gap / insufficient power" in pr_md
     assert "Statistical Power Notes" in html_doc
+
+
+def test_fairness_enforce_absolute_opt_in_relative_to_champion() -> None:
+    """Opt-in enforce_absolute=True gates on excess above champion's own gap."""
+    n_per_group = 200
+    df = pd.DataFrame(
+        {
+            "gender": ["male"] * n_per_group + ["female"] * n_per_group,
+            "idx": list(range(n_per_group)) + list(range(n_per_group)),
+            "default": [0, 1] * n_per_group,
+        }
+    )
+
+    # Champion: male pos rate = 0.40, female pos rate = 0.10 -> DP = 0.30
+    class ChampModel:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 80, idx < 20).astype(int)
+
+    # Candidate A: identical to champion (DP = 0.30, excess over champion = 0.0)
+    # Candidate B: male pos rate = 0.52, female pos rate = 0.10 -> DP = 0.42 (excess +0.12 over champion)
+    class CandWiderDP:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 104, idx < 20).astype(int)
+
+    # Candidate C: male pos rate = 0.46, female pos rate = 0.10 -> DP = 0.36 (excess +0.06 over champion)
+    class CandSlightlyWiderDP:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 92, idx < 20).astype(int)
+
+    # Set high bootstrap thresholds so we isolate enforce_absolute behavior
+    cfg_abs = FairnessConfig(
+        enabled=True,
+        protected=["gender"],
+        metric="demographic_parity_diff",
+        enforce_absolute=True,
+        warn_at=0.05,
+        fail_at=0.10,
+        max_gap_increase=0.50,
+        fail_gap_increase=0.50,
+        selection_rate_shift_warn=0.50,
+    )
+    # 1. Pre-existing champion DP=0.30 with 0 excess -> PASS even with enforce_absolute=True
+    res_same = run_fairness_check(df, "default", ChampModel(), ChampModel(), cfg_abs, seed=42)
+    assert res_same.status == "pass"
+    assert res_same.details["enforce_absolute"] is True
+    assert res_same.details["groups"][0]["relative_excess_over_champion"] == 0.0
+
+    # 2. Excess +0.06 >= warn_at (0.05) -> WARN
+    res_warn = run_fairness_check(
+        df, "default", CandSlightlyWiderDP(), ChampModel(), cfg_abs, seed=42
+    )
+    assert res_warn.status == "warn"
+    assert res_warn.details["groups"][0]["relative_excess_over_champion"] == pytest.approx(
+        0.06, abs=1e-3
+    )
+
+    # 3. Excess +0.12 >= fail_at (0.10) -> FAIL
+    res_fail = run_fairness_check(df, "default", CandWiderDP(), ChampModel(), cfg_abs, seed=42)
+    assert res_fail.status == "fail"
+    assert res_fail.details["groups"][0]["relative_excess_over_champion"] == pytest.approx(
+        0.12, abs=1e-3
+    )
+
+    # 4. With enforce_absolute=False (default), same config does NOT trigger static limit
+    cfg_no_abs = cfg_abs.model_copy(update={"enforce_absolute": False})
+    res_opt_out = run_fairness_check(
+        df, "default", CandWiderDP(), ChampModel(), cfg_no_abs, seed=42
+    )
+    assert res_opt_out.status == "pass"
+
+
+def test_fairness_per_group_selection_rate_shift_two_sided_warn() -> None:
+    """Two-sided paired bootstrap per-group selection-rate shift emits WARN even when DP gap narrows."""
+    n_per_group = 300
+    df = pd.DataFrame(
+        {
+            "gender": ["male"] * n_per_group + ["female"] * n_per_group,
+            "idx": list(range(n_per_group)) + list(range(n_per_group)),
+            "default": ([1] * 60 + [0] * 240) + ([1] * 60 + [0] * 240),
+        }
+    )
+
+    # Champion: male pos rate = 0.25 (75/300), female pos rate = 0.05 (15/300) -> DP = 0.20
+    class ChampModel:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 75, idx < 15).astype(int)
+
+        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+            p = np.full(len(X), 0.20)
+            return np.column_stack([1.0 - p, p])
+
+    # Candidate shifts female selection rate UP (0.05 -> 0.15, +0.10), NARROWING DP (0.20 -> 0.10),
+    # while keeping probabilities unchanged and TPR/FPR equalized odds narrower (female TPR 0.25->0.75 vs male 1.0).
+    class FemaleUpCandidate:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 75, idx < 45).astype(int)
+
+        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+            p = np.full(len(X), 0.20)
+            return np.column_stack([1.0 - p, p])
+
+    # Candidate shifts male selection rate DOWN (0.25 -> 0.15, -0.10), ALSO narrowing DP (0.20 -> 0.10)
+    class MaleDownCandidate:
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            is_m = X["gender"].values == "male"
+            idx = X["idx"].values
+            return np.where(is_m, idx < 45, idx < 15).astype(int)
+
+        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+            p = np.full(len(X), 0.20)
+            return np.column_stack([1.0 - p, p])
+
+    cfg = FairnessConfig(
+        enabled=True,
+        protected=["gender"],
+        metric="demographic_parity_diff",
+        selection_rate_shift_warn=0.02,
+    )
+
+    # Positive selection-rate shift on female -> WARN (not FAIL)
+    res_up = run_fairness_check(df, "default", FemaleUpCandidate(), ChampModel(), cfg, seed=42)
+    assert res_up.status == "warn"
+    assert "Selection-rate shift" in res_up.summary
+    assert "gender=female" in res_up.summary
+    assert res_up.metrics["max_selection_rate_shift"] == pytest.approx(0.10, abs=1e-3)
+
+    # Negative selection-rate shift on male -> WARN (two-sided!)
+    res_down = run_fairness_check(df, "default", MaleDownCandidate(), ChampModel(), cfg, seed=42)
+    assert res_down.status == "warn"
+    assert "Selection-rate shift" in res_down.summary
+    assert "gender=male" in res_down.summary
+    assert res_down.metrics["max_selection_rate_shift"] == pytest.approx(0.10, abs=1e-3)
+
+    # Identical candidate -> PASS
+    res_noop = run_fairness_check(df, "default", ChampModel(), ChampModel(), cfg, seed=42)
+    assert res_noop.status == "pass"
+    assert res_noop.metrics["max_selection_rate_shift"] == 0.0
 
 
 def test_behavioral_min_functionality(tmp_path: Path) -> None:

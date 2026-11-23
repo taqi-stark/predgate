@@ -561,3 +561,111 @@ def paired_bootstrap_gap_ci(
         confidence=confidence,
         p_value=p_value,
     )
+
+
+def paired_bootstrap_median_ratio_ci(
+    champ_samples: NDArray[np.float64],
+    cand_samples: NDArray[np.float64],
+    n_bootstrap: int = 1000,
+    confidence: float = 0.95,
+    seed: int = 42,
+) -> BootstrapResult:
+    """Compute a paired bootstrap CI on the ratio of medians: median(cand) / median(champ).
+
+    Resamples paired interleaved timing batches jointly to cancel shared runner/host jitter.
+    """
+    a_arr = np.asarray(champ_samples, dtype=np.float64)
+    b_arr = np.asarray(cand_samples, dtype=np.float64)
+    n = min(len(a_arr), len(b_arr))
+    if n == 0:
+        return BootstrapResult(1.0, 1.0, 1.0, n_bootstrap, confidence, 1.0)
+
+    a_arr = a_arr[:n]
+    b_arr = b_arr[:n]
+    champ_med = float(np.median(a_arr))
+    cand_med = float(np.median(b_arr))
+    point_estimate = float(cand_med / max(champ_med, 1e-9))
+
+    rng = np.random.RandomState(seed)
+    idx = rng.randint(0, n, size=(n_bootstrap, n))
+    boot_a_med = np.median(a_arr[idx], axis=1)
+    boot_b_med = np.median(b_arr[idx], axis=1)
+    ratios = boot_b_med / np.maximum(boot_a_med, 1e-9)
+
+    alpha = 1.0 - confidence
+    ci_lower = float(np.percentile(ratios, 100 * alpha / 2))
+    ci_upper = float(np.percentile(ratios, 100 * (1 - alpha / 2)))
+    p_value = float(np.mean(ratios <= 1.0))
+
+    return BootstrapResult(
+        point_estimate=point_estimate,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        n_bootstrap=n_bootstrap,
+        confidence=confidence,
+        p_value=p_value,
+    )
+
+
+def paired_bootstrap_group_rate_shift_ci(
+    champ_preds: NDArray[Any],
+    cand_preds: NDArray[Any],
+    protected: NDArray[np.object_],
+    group: Any,
+    n_bootstrap: int = 1000,
+    confidence: float = 0.95,
+    seed: int = 42,
+) -> BootstrapResult:
+    """Compute a two-sided paired bootstrap CI on per-group selection-rate shift: P(cand=1|G=g) - P(champ=1|G=g).
+
+    Uses exact 3-cell multinomial resampling over paired differences (-1, 0, +1) for binary predictions.
+    """
+    prot_arr = np.asarray(protected)
+    mask = prot_arr == group
+    n_g = int(np.sum(mask))
+    if n_g == 0:
+        return BootstrapResult(0.0, 0.0, 0.0, n_bootstrap, confidence, 1.0)
+
+    champ_g = np.asarray(champ_preds[mask], dtype=np.float64)
+    cand_g = np.asarray(cand_preds[mask], dtype=np.float64)
+    diffs_row = cand_g - champ_g
+    point_estimate = float(np.mean(diffs_row))
+
+    rng = np.random.RandomState(seed)
+    n_minus = int(np.sum(diffs_row == -1.0))
+    n_zero = int(np.sum(diffs_row == 0.0))
+    n_plus = int(np.sum(diffs_row == 1.0))
+
+    if n_minus + n_zero + n_plus == n_g:
+        probs = np.array([n_minus, n_zero, n_plus], dtype=np.float64) / float(n_g)
+        counts = rng.multinomial(n_g, probs, size=n_bootstrap)
+        boot_diffs = (counts[:, 2] - counts[:, 0]) / float(n_g)
+    else:
+        idx = rng.randint(0, n_g, size=(n_bootstrap, n_g))
+        boot_diffs = np.mean(diffs_row[idx], axis=1)
+
+    alpha = 1.0 - confidence
+    ci_lower = float(np.percentile(boot_diffs, 100 * alpha / 2))
+    ci_upper = float(np.percentile(boot_diffs, 100 * (1 - alpha / 2)))
+    if point_estimate == 0.0:
+        p_two_sided = 1.0
+    else:
+        p_two_sided = float(
+            min(
+                1.0,
+                2.0
+                * min(
+                    float(np.mean(boot_diffs <= 0.0)),
+                    float(np.mean(boot_diffs >= 0.0)),
+                ),
+            )
+        )
+
+    return BootstrapResult(
+        point_estimate=point_estimate,
+        ci_lower=ci_lower,
+        ci_upper=ci_upper,
+        n_bootstrap=n_bootstrap,
+        confidence=confidence,
+        p_value=p_two_sided,
+    )

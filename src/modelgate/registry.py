@@ -300,12 +300,14 @@ def verify_champion_integrity(
     dvc_path: str | os.PathLike[str] | None = None,
     pinned_sha256: str = "",
     changed_files: list[str] | None = None,
-    allow_champion_update: bool = False,
 ) -> dict[str, Any]:
     """Verify champion baseline integrity against metadata.json, champion.dvc, and a pinned SHA-256.
 
-    Also rejects unapproved PR modifications touching champion/ or champion.dvc unless
-    allow_champion_update is True (or ALLOW_CHAMPION_UPDATE=true in the environment).
+    Fails closed on every verification path:
+    - Any PR changed_files touching champion/ or champion.dvc is rejected unconditionally
+      (no custom approval bypass; govern baseline updates via branch protection + CODEOWNERS).
+    - Missing model.pkl, missing/empty sha256 in metadata.json or champion.dvc, or any
+      SHA-256 mismatch raises ValueError/FileNotFoundError.
     """
     from pathlib import Path
 
@@ -315,13 +317,6 @@ def verify_champion_integrity(
 
     in_dir = Path(baseline_dir)
     dvc_file = Path(dvc_path) if dvc_path is not None else (in_dir.parent / f"{in_dir.name}.dvc")
-
-    env_allow = os.environ.get("ALLOW_CHAMPION_UPDATE", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    effective_allow = allow_champion_update or env_allow
 
     if changed_files:
         prefix = f"{in_dir.name}/"
@@ -334,10 +329,10 @@ def verify_champion_integrity(
             or f == dvc_name
             or f.endswith(f"/{dvc_name}")
         ]
-        if touched and not effective_allow:
+        if touched:
             raise ValueError(
                 f"Unapproved modification of champion baseline in PR ({', '.join(touched)}). "
-                "CODEOWNERS approval is required to modify champion/ or champion.dvc."
+                "No custom approval bypass is permitted; govern champion/ updates via GitHub branch protection and CODEOWNERS."
             )
 
     model_path = in_dir / "model.pkl"
@@ -365,13 +360,12 @@ def verify_champion_integrity(
         dvc_data = yaml.safe_load(dvc_file.read_text()) or {}
         outs = dvc_data.get("outs", [])
         expected_dvc_sha = str(outs[0].get("sha256", "")).strip() if outs else ""
-        if expected_dvc_sha and expected_dvc_sha != actual_sha:
+        if not expected_dvc_sha or expected_dvc_sha != actual_sha:
             raise ValueError(
                 f"Champion model SHA-256 mismatch against {dvc_file.name}: "
-                f"expected {expected_dvc_sha}, got {actual_sha}"
+                f"expected {expected_dvc_sha or '<missing>'}, got {actual_sha}"
             )
-        if expected_dvc_sha:
-            checked_any = True
+        checked_any = True
 
     if pinned:
         if pinned != actual_sha:
@@ -428,21 +422,19 @@ def import_champion_baseline(
         json.loads(metrics_path.read_text()) if metrics_path.exists() else {}
     )
 
-    from modelgate.loader import import_entrypoint, load_data
+    from modelgate.loader import load_data
 
-    train_df, test_df, _ = load_data(config)
+    _, test_df, _ = load_data(config)
     target = config.data.target
     try:
         with open(model_path, "rb") as f:
             model = pickle.load(f)
         model.predict(test_df.drop(columns=[target]).iloc[:2])
-    except Exception:
-        build_fn = import_entrypoint(config.model.entrypoint)
-        model = build_fn(
-            train_df.drop(columns=[target]),
-            train_df[target],
-            seed=int(metadata.get("seed", config.seed)),
-        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to load or run verified champion baseline pickle '{model_path}': {exc}. "
+            "Refusing to silently retrain champion from candidate entrypoint."
+        ) from exc
 
     verdict = Verdict(
         status="pass",

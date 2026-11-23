@@ -81,3 +81,52 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     assert (tmp_path / "docs" / "benchmark.md").exists()
     _generate_benchmark_markdown(res["summary"], md_path, commit_hash="abc1234", seeds=None)
     assert md_path.exists()
+
+    # Verify generate_benchmark_markdown_from_json renders public fairness section purely from JSON
+    import json
+
+    from modelgate.benchmark import generate_benchmark_markdown_from_json
+
+    json_file = tmp_path / "custom_bench.json"
+    md_out = tmp_path / "custom_bench.md"
+    payload = {
+        "command": "python scripts/bench_public.py",
+        "commit_hash": "deadbee",
+        "n_seeds": 2,
+        "seeds": [1000, 1001],
+        "summary": res["summary"],
+        "public_fairness_benchmark": {
+            "command": "python scripts/bench_public.py",
+            "commit_hash": "deadbee",
+            "seeds": [5000, 5001],
+            "frozen_settings": {"max_gap_increase": 0.02, "selection_rate_shift_warn": 0.02},
+            "rows": [
+                {
+                    "dataset": "CustomDS",
+                    "fault": "noop",
+                    "fault_label": "`noop` (FP rate)",
+                    "n_trials": 2,
+                    "detected_total": 0,
+                    "detected_fail": 0,
+                    "detected_warn": 0,
+                    "detection_rate": 0.0,
+                    "ci_95": [0.0, 0.658],
+                    "baseline_detected": 0,
+                    "baseline_rate": 0.0,
+                    "baseline_ci_95": [0.0, 0.658],
+                    "mean_champ_dp": 0.123,
+                    "mean_cand_dp": 0.123,
+                    "mean_min_n": 250.0,
+                    "mean_mde_dp": 0.055,
+                    "mean_mde_eo": 0.111,
+                    "power_note_count": 2,
+                }
+            ],
+        },
+    }
+    json_file.write_text(json.dumps(payload))
+    rendered = generate_benchmark_markdown_from_json(json_file, md_out)
+    assert "CustomDS" in rendered
+    assert "0.123 -> 0.123" in rendered
+    assert "5000..5001" in rendered
+    assert "| **UCI Adult** |" not in rendered

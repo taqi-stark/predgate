@@ -24,7 +24,9 @@ from modelgate.stats import (
     demographic_parity_diff,
     equal_opportunity_diff,
     equalized_odds_diff,
+    holm_bonferroni,
     paired_bootstrap_gap_ci,
+    paired_bootstrap_group_rate_shift_ci,
     per_group_calibration,
 )
 from modelgate.verdict import CheckResult
@@ -134,10 +136,12 @@ def run_fairness_check(
     max_eqodds_value = 0.0
     max_cal_gap_value = 0.0
     max_gap_delta = 0.0
+    max_selection_rate_shift = 0.0
     max_mde_dp = 0.0
     max_mde_eo = 0.0
     bootstrap_fail_reasons: list[str] = []
     bootstrap_warn_reasons: list[str] = []
+    selection_rate_shift_warn_reasons: list[str] = []
     power_notes: list[str] = []
 
     for idx_col, protected_col in enumerate(config.protected):
@@ -301,6 +305,56 @@ def run_fairness_check(
 
             result_entry["gap_bootstrap"] = boot_details[config.metric]
             result_entry["all_gap_bootstraps"] = boot_details
+
+            # Per-group selection-rate shift check (two-sided, paired bootstrap, Holm-Bonferroni, WARN level)
+            shift_entries: list[dict[str, Any]] = []
+            shift_pvals: list[float] = []
+            for g_idx, g in enumerate(groups):
+                shift_boot = paired_bootstrap_group_rate_shift_ci(
+                    champion_preds,
+                    candidate_preds,
+                    protected_values,
+                    g,
+                    n_bootstrap=config.selection_rate_n_bootstrap,
+                    confidence=config.confidence,
+                    seed=seed + idx_col * 31 + g_idx,
+                )
+                shift_pvals.append(shift_boot.p_value)
+                max_selection_rate_shift = max(
+                    max_selection_rate_shift, abs(shift_boot.point_estimate)
+                )
+                shift_entries.append(
+                    {
+                        "group": str(g),
+                        "delta": round(shift_boot.point_estimate, 4),
+                        "ci_lower": round(shift_boot.ci_lower, 4),
+                        "ci_upper": round(shift_boot.ci_upper, 4),
+                        "p_value": round(shift_boot.p_value, 4),
+                    }
+                )
+
+            rejected_shifts = (
+                holm_bonferroni(shift_pvals, alpha=1.0 - config.confidence) if shift_pvals else []
+            )
+            for g_idx, s_entry in enumerate(shift_entries):
+                is_sig = rejected_shifts[g_idx] if g_idx < len(rejected_shifts) else False
+                ci_excl_zero = s_entry["ci_lower"] > 0.0 or s_entry["ci_upper"] < 0.0
+                triggers_warn = (
+                    is_sig
+                    and ci_excl_zero
+                    and abs(s_entry["delta"]) >= config.selection_rate_shift_warn
+                )
+                s_entry["significant"] = is_sig
+                s_entry["warn"] = triggers_warn
+                if g_idx < len(per_group):
+                    per_group[g_idx]["selection_rate_shift"] = s_entry
+                if triggers_warn:
+                    selection_rate_shift_warn_reasons.append(
+                        f"{protected_col}={s_entry['group']} selection rate {s_entry['delta']:+.3f} "
+                        f"(95% CI [{s_entry['ci_lower']:+.3f}, {s_entry['ci_upper']:+.3f}])"
+                    )
+
+            result_entry["selection_rate_shifts"] = shift_entries
         else:
             max_effective_absolute_excess = max(max_effective_absolute_excess, candidate_value)
 
@@ -311,6 +365,7 @@ def run_fairness_check(
     # Default gate when champion is present: paired bootstrap CI on gap change.
     # Absolute DP limit is opt-in (config.enforce_absolute) and relative to champion's gap when champion is present,
     # or evaluated on standalone candidate when no champion is provided.
+    # Per-group two-sided selection-rate shift operates at WARN level.
     check_abs = (champion_model is None) or config.enforce_absolute
     status: Literal["pass", "warn", "fail", "skip"]
     if bootstrap_fail_reasons:
@@ -322,6 +377,9 @@ def run_fairness_check(
     elif bootstrap_warn_reasons:
         status = "warn"
         summary = f"Fairness gap increase: {'; '.join(bootstrap_warn_reasons[:2])}"
+    elif selection_rate_shift_warn_reasons:
+        status = "warn"
+        summary = f"Selection-rate shift: {'; '.join(selection_rate_shift_warn_reasons[:2])}"
     elif check_abs and max_effective_absolute_excess >= config.warn_at:
         status = "warn"
         summary = f"{config.metric} {max_effective_absolute_excess:.2f} >= {config.warn_at}"
@@ -344,6 +402,7 @@ def run_fairness_check(
             "equalized_odds_diff": max_eqodds_value,
             "calibration_gap_diff": max_cal_gap_value,
             "max_gap_delta": max_gap_delta,
+            "max_selection_rate_shift": round(max_selection_rate_shift, 4),
             "min_detectable_gap_dp": round(max_mde_dp, 4),
             "min_detectable_gap_eo": round(max_mde_eo, 4),
             "insufficient_power": 1.0 if power_notes else 0.0,
@@ -351,6 +410,7 @@ def run_fairness_check(
         details={
             "groups": group_results,
             "power_notes": power_notes,
+            "selection_rate_shift_warnings": selection_rate_shift_warn_reasons,
             "enforce_absolute": config.enforce_absolute,
         },
         duration_s=duration,

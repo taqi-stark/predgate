@@ -109,6 +109,10 @@ class BudgetConfig(BaseModel):
 
     enabled: bool = True
     max_latency_ratio: float | None = 1.5
+    latency_samples: int = 20
+    latency_batch_size: int = 5
+    latency_confidence: float = 0.95
+    latency_n_bootstrap: int = 1000
     p95_latency_ms: float | None = None
     max_model_mb: float = 50.0
     max_peak_mem_mb: float = 500.0
@@ -125,6 +129,8 @@ class FairnessConfig(BaseModel):
     enforce_absolute: bool = False
     max_gap_increase: float = 0.02
     fail_gap_increase: float = 0.05
+    selection_rate_shift_warn: float = 0.02
+    selection_rate_n_bootstrap: int = 1000
     min_group_size: int = 100
     min_group_positives: int = 30
     confidence: float = 0.95

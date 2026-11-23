@@ -11,6 +11,10 @@ inputs:
     description: 'Python version to use'
     required: false
     default: '3.12'
+  modelgate-spec:
+    description: 'Optional pinned ModelGate package spec (e.g. modelgate==0.1.0 or git+https://...@<sha>). When omitted on a PR, installs the committed base branch or pinned action ref (never the untrusted PR head).'
+    required: false
+    default: ''
   output-dir:
     description: 'Directory to store generated reports and PR comments'
     required: false
@@ -27,10 +31,6 @@ inputs:
     description: 'Optional explicit pinned SHA-256 of champion/model.pkl (auto-read from base branch when omitted)'
     required: false
     default: ''
-  allow-champion-update:
-    description: 'Set to true only when a PR modifying champion/ has CODEOWNERS approval'
-    required: false
-    default: 'false'
   setup-data:
     description: 'Command to prepare data on a clean checkout when data/train.csv is absent (e.g. dvc pull or python demo/train.py)'
     required: false
@@ -62,51 +62,88 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Install ModelGate
+    - name: Fetch Base Ref & Install Pinned ModelGate
+      id: install_pinned
       shell: bash
       run: |
-        python -m pip install --upgrade pip
-        pip install -e .
+        set -euo pipefail
+        BASE_REF="${{ inputs.base-ref || github.base_ref }}"
+        EVENT_NAME="${{ github.event_name }}"
+        MODELGATE_SPEC="${{ inputs.modelgate-spec }}"
 
-    - name: Prepare Data, Verify Integrity & Import Champion Baseline
-      shell: bash
-      env:
-        ALLOW_CHAMPION_UPDATE: ${{ inputs.allow-champion-update }}
-      run: |
-        if [ ! -f "data/train.csv" ]; then
-          if [ -s ".dvc/config" ] && command -v dvc >/dev/null 2>&1; then
-            dvc pull
-          elif [ -n "${{ inputs.setup-data }}" ]; then
-            ${{ inputs.setup-data }}
-          fi
+        if [ -z "$BASE_REF" ] && [[ "$EVENT_NAME" == pull_request* ]]; then
+          echo "::error::Base ref is required on pull_request events; failing closed" >&2
+          exit 1
         fi
 
-        BASE_REF="${{ inputs.base-ref || github.base_ref }}"
+        BASE_COMMIT=""
+        if [ -n "$BASE_REF" ]; then
+          git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+            echo "::error::Not inside a git work tree; cannot fetch base ref '${BASE_REF}'" >&2
+            exit 1
+          }
+          # Fail closed if base ref cannot be fetched or verified
+          git fetch --no-tags --depth=1 origin "${BASE_REF}"
+          BASE_COMMIT=$(git rev-parse --verify "origin/${BASE_REF}^{commit}")
+        fi
+
+        python -m pip install --upgrade pip
+        if [ -n "$MODELGATE_SPEC" ]; then
+          pip install "${MODELGATE_SPEC}"
+        elif [ -n "$BASE_COMMIT" ] && git cat-file -e "${BASE_COMMIT}:pyproject.toml" 2>/dev/null; then
+          TRUSTED_DIR="${RUNNER_TEMP:-/tmp}/modelgate-trusted-${GITHUB_RUN_ID:-local}"
+          rm -rf "${TRUSTED_DIR}"
+          mkdir -p "${TRUSTED_DIR}"
+          git archive "${BASE_COMMIT}" | tar -x -C "${TRUSTED_DIR}"
+          pip install "${TRUSTED_DIR}"
+        elif [ -n "${GITHUB_ACTION_PATH:-}" ] && [ "${GITHUB_ACTION_PATH}" != "${GITHUB_WORKSPACE:-}" ] && [ -f "${GITHUB_ACTION_PATH}/pyproject.toml" ]; then
+          pip install "${GITHUB_ACTION_PATH}"
+        else
+          echo "::error::Refusing to install untrusted PR head code. Provide 'modelgate-spec', run from a pinned external action ref, or provide a base branch containing ModelGate." >&2
+          exit 1
+        fi
+
+        if [ -n "${GITHUB_OUTPUT:-}" ]; then
+          echo "base_ref=${BASE_REF}" >> "$GITHUB_OUTPUT"
+          echo "base_commit=${BASE_COMMIT}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Verify Champion Baseline, Prepare Data & Import Champion
+      id: verify_champion
+      shell: bash
+      run: |
+        set -euo pipefail
+        BASE_REF="${{ steps.install_pinned.outputs.base_ref }}"
         BASE_DIR="${{ inputs.baseline-dir }}"
         DVC_FILE="${BASE_DIR}.dvc"
         PINNED_SHA="${{ inputs.pinned-sha256 }}"
-        CHANGED_ARGS=()
 
-        if [ -n "$BASE_REF" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-          git fetch origin "${BASE_REF}" || true
-          if git rev-parse --verify "origin/${BASE_REF}" >/dev/null 2>&1; then
-            mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
-            for f in "${CHANGED_FILES[@]}"; do
-              if [ -n "$f" ]; then
-                CHANGED_ARGS+=(--changed-file "$f")
-              fi
-            done
+        if [ -n "$BASE_REF" ]; then
+          git rev-parse --verify "origin/${BASE_REF}" >/dev/null
 
-            if [ -z "$PINNED_SHA" ]; then
-              PINNED_SHA=$(git show "origin/${BASE_REF}:${DVC_FILE}" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" || true)
-            fi
-            if [ -z "$PINNED_SHA" ]; then
-              PINNED_SHA=$(git show "origin/${BASE_REF}:${BASE_DIR}/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" || true)
-            fi
+          if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq "^(${BASE_DIR}/|${DVC_FILE}$)"; then
+            echo "::notice::PR modifies ${BASE_DIR}/; evaluating against trusted base-branch champion. Merge requires CODEOWNERS approval via branch protection."
+          fi
 
-            if git cat-file -e "origin/${BASE_REF}:${BASE_DIR}/model.pkl" 2>/dev/null; then
-              git checkout "origin/${BASE_REF}" -- "${BASE_DIR}" "${DVC_FILE}" 2>/dev/null || git checkout "origin/${BASE_REF}" -- "${BASE_DIR}"
-            fi
+          if [ -z "$PINNED_SHA" ]; then
+            PINNED_SHA=$(git show "origin/${BASE_REF}:${DVC_FILE}" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" 2>/dev/null || true)
+          fi
+          if [ -z "$PINNED_SHA" ]; then
+            PINNED_SHA=$(git show "origin/${BASE_REF}:${BASE_DIR}/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" 2>/dev/null || true)
+          fi
+          if [ -z "$PINNED_SHA" ]; then
+            echo "::error::Could not determine pinned champion SHA-256 from origin/${BASE_REF}; failing closed" >&2
+            exit 1
+          fi
+
+          git cat-file -e "origin/${BASE_REF}:${BASE_DIR}/model.pkl" 2>/dev/null || {
+            echo "::error::Base ref origin/${BASE_REF} does not contain ${BASE_DIR}/model.pkl; failing closed" >&2
+            exit 1
+          }
+          if git cat-file -e "origin/${BASE_REF}:${DVC_FILE}" 2>/dev/null; then
+            git checkout "origin/${BASE_REF}" -- "${BASE_DIR}" "${DVC_FILE}"
+          else
+            git checkout "origin/${BASE_REF}" -- "${BASE_DIR}"
           fi
         fi
 
@@ -118,8 +155,21 @@ runs:
           if [ -n "$PINNED_SHA" ]; then
             VERIFY_ARGS+=(--pinned-sha256 "$PINNED_SHA")
           fi
-          modelgate baseline verify "${VERIFY_ARGS[@]}" "${CHANGED_ARGS[@]}"
+          modelgate baseline verify "${VERIFY_ARGS[@]}"
+        elif [ -n "$BASE_REF" ]; then
+          echo "::error::Champion baseline ${BASE_DIR}/model.pkl missing after base-branch checkout; failing closed" >&2
+          exit 1
+        fi
 
+        if [ ! -f "data/train.csv" ]; then
+          if [ -s ".dvc/config" ] && command -v dvc >/dev/null 2>&1; then
+            dvc pull
+          elif [ -n "${{ inputs.setup-data }}" ]; then
+            ${{ inputs.setup-data }}
+          fi
+        fi
+
+        if [ -f "${BASE_DIR}/model.pkl" ]; then
           IMPORT_ARGS=(--config "${{ inputs.config }}" --dir "${BASE_DIR}")
           if [ -n "$PINNED_SHA" ]; then
             IMPORT_ARGS+=(--pinned-sha256 "$PINNED_SHA")
@@ -127,9 +177,15 @@ runs:
           modelgate baseline import "${IMPORT_ARGS[@]}"
         fi
 
+        if [ -n "${GITHUB_OUTPUT:-}" ]; then
+          echo "pinned_sha=${PINNED_SHA}" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Run Quality Gate Checks
       id: gate
       shell: bash
+      env:
+        CHAMPION_PINNED_SHA256: ${{ steps.verify_champion.outputs.pinned_sha }}
       run: |
         mkdir -p "${{ inputs.output-dir }}"
         PR_NUM="${{ github.event.pull_request.number }}"

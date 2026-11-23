@@ -226,6 +226,9 @@ def test_loader_and_lineage_functions(tmp_path: Path, monkeypatch: pytest.Monkey
     model = fn(train_df.drop(columns=["default"]), train_df["default"])
     with open(champ_dir / "model.pkl", "wb") as f:
         pickle.dump(model, f)
+    (champ_dir / "metadata.json").write_text(
+        json.dumps({"model_sha256": compute_file_hash(champ_dir / "model.pkl")})
+    )
 
     load_res = load_candidate_and_champion(cfg)
     assert load_res.is_first_run is False
@@ -321,15 +324,16 @@ def test_champion_integrity_rejects_tampering_and_unapproved_pr_changes(
             changed_files=["champion.dvc"],
         )
 
-    # 3. Approved PR modification (CODEOWNERS / allow_champion_update=True) is permitted
-    ok_approved = verify_champion_integrity(
-        baseline_dir=champ_dir,
-        dvc_path=tmp_path / "champion.dvc",
-        pinned_sha256=pinned_sha,
-        changed_files=["champion/model.pkl", "champion.dvc"],
-        allow_champion_update=True,
-    )
-    assert ok_approved["verified"] is True
+    # 3. Custom approval bypass env var (ALLOW_CHAMPION_UPDATE=true) must NOT bypass rejection
+    monkeypatch.setenv("ALLOW_CHAMPION_UPDATE", "true")
+    with pytest.raises(ValueError, match="Unapproved modification of champion baseline"):
+        verify_champion_integrity(
+            baseline_dir=champ_dir,
+            dvc_path=tmp_path / "champion.dvc",
+            pinned_sha256=pinned_sha,
+            changed_files=["champion/model.pkl", "champion.dvc"],
+        )
+    monkeypatch.delenv("ALLOW_CHAMPION_UPDATE", raising=False)
 
     # 4. Tampering with champion/model.pkl bytes is rejected by verify, import, and loader
     orig_bytes = (champ_dir / "model.pkl").read_bytes()

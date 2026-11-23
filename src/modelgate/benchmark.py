@@ -265,8 +265,7 @@ def run_single_trial(
         )
     elif model_override == "proxy_blind_model":
         # Drop explicit protected attribute so the model discriminates only through proxy_score
-        X_proxy = X_faulty.copy()
-        X_proxy["gender"] = "redacted"
+        X_proxy = X_faulty.drop(columns=["gender"])
         candidate = _train_model(X_proxy, y_faulty, seed=cand_seed)
     else:
         candidate = _train_model(X_faulty, y_faulty, seed=cand_seed)
@@ -361,7 +360,7 @@ def run_single_trial(
     )
     modelgate_results.append(fairness_result)
 
-    # Budgets check (paired latency ratio gate in the same job; absolute ms optional)
+    # Budgets check (interleaved batched median latency ratio gate with paired bootstrap CI)
     if fault_type in ("latency_regression", "noop"):
         budget_result = run_budgets_check(
             test_eval,
@@ -369,6 +368,7 @@ def run_single_trial(
             candidate,
             champion,
             BudgetConfig(enabled=True, max_latency_ratio=1.5, p95_latency_ms=None),
+            seed=seed,
         )
         modelgate_results.append(budget_result)
 
@@ -537,16 +537,21 @@ def run_benchmark(
 
     docs_dir = Path("docs")
     docs_dir.mkdir(exist_ok=True)
-    (docs_dir / "benchmark_results.json").write_text(json.dumps(results_data, indent=2))
+    json_path = docs_dir / "benchmark_results.json"
+    # Preserve existing public_fairness_benchmark section if already populated by scripts/bench_public.py
+    if json_path.exists():
+        try:
+            existing_data = json.loads(json_path.read_text())
+            if "public_fairness_benchmark" in existing_data:
+                results_data["public_fairness_benchmark"] = existing_data[
+                    "public_fairness_benchmark"
+                ]
+        except Exception:
+            pass
+    json_path.write_text(json.dumps(results_data, indent=2) + "\n")
 
-    # Generate markdown
-    _generate_benchmark_markdown(
-        summary,
-        docs_dir / "benchmark.md",
-        commit_hash=commit_hash,
-        seeds=seeds,
-        command_str=command_str,
-    )
+    # Generate markdown strictly from the JSON file
+    generate_benchmark_markdown_from_json(json_path, docs_dir / "benchmark.md")
 
     console.print(
         "\n[green]Results saved to docs/benchmark_results.json and docs/benchmark.md[/green]"
@@ -555,18 +560,25 @@ def run_benchmark(
     return results_data
 
 
-def _generate_benchmark_markdown(
-    summary: dict[str, dict[str, Any]],
-    path: Path,
-    commit_hash: str = "unknown",
-    seeds: list[int] | None = None,
-    command_str: str = "modelgate bench",
-) -> None:
-    """Generate benchmark.md report with exact counts, metadata, and Wilson 95% CIs."""
-    if seeds is None:
+def generate_benchmark_markdown_from_json(
+    json_path: Path,
+    md_path: Path,
+) -> str:
+    """Generate docs/benchmark.md strictly from a machine-readable benchmark_results.json file.
+
+    No benchmark numbers are hardcoded in Python; every table row and metric is rendered
+    directly from the JSON artifact.
+    """
+    data: dict[str, Any] = json.loads(json_path.read_text())
+    summary: dict[str, dict[str, Any]] = data.get("summary", {})
+    commit_hash = str(data.get("commit_hash", "unknown"))
+    command_str = str(data.get("command", "modelgate bench"))
+    seeds: list[int] = list(data.get("seeds", []))
+    if not seeds:
         first_entry: dict[str, Any] = next(iter(summary.values()), {})
         n_default = int(first_entry.get("n_trials", 30))
         seeds = [1000 + i for i in range(n_default)]
+
     seed_range_str = f"`{seeds[0]}..{seeds[-1]}` (N={len(seeds)}: `{', '.join(map(str, seeds))}`)"
     noop = summary.get("noop", {})
     noop_mg_k = noop.get("mg_detected", 0)
@@ -580,7 +592,7 @@ def _generate_benchmark_markdown(
     lines = [
         "# ModelGate Benchmark Results",
         "",
-        "Single source of truth for the ModelGate fault-injection benchmark comparing ModelGate against an accuracy-only baseline.",
+        "Single source of truth for the ModelGate fault-injection benchmark, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json).",
         "",
         "## Reproducibility Metadata",
         "",
@@ -590,7 +602,7 @@ def _generate_benchmark_markdown(
         f"- **No-op False-Positive Rate (ModelGate)**: **{noop_mg_k}/{noop_n} ({noop_mg_rate:.1%} observed FP; Wilson 95% CI [{noop_mg_ci[0]:.1%}, {noop_mg_ci[1]:.1%}], i.e. an {noop_mg_ci[1]:.1%} 95% upper bound at N={noop_n})**",
         f"- **No-op False-Positive Rate (Baseline)**: **{noop_bl_k}/{noop_n} ({noop_bl_rate:.1%} observed FP; Wilson 95% CI [{noop_bl_ci[0]:.1%}, {noop_bl_ci[1]:.1%}], i.e. an {noop_bl_ci[1]:.1%} 95% upper bound at N={noop_n})**",
         "",
-        "## Detection Rates (Synthetic Credit Benchmark, Seeds `1000..1029`)",
+        f"## Detection Rates (Synthetic Credit Benchmark, Seeds `{seeds[0]}..{seeds[-1]}`)",
         "",
         "A winner is declared only when the 95% Wilson confidence intervals do not overlap; overlapping 95% CIs are reported as a statistical **Tie (overlapping 95% CIs)**.",
         "",
@@ -610,7 +622,7 @@ def _generate_benchmark_markdown(
             mg_cell = f"{mg_k}/{n} ({s['modelgate_detection_rate']:.1%} FP, [{mg_ci[0]:.1%}, {mg_ci[1]:.1%}])"
             bl_cell = f"{bl_k}/{n} ({s['baseline_detection_rate']:.1%} FP, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])"
             if overlaps:
-                winner = "Tie (11.4% 95% CI upper bound)"
+                winner = f"Tie ({mg_ci[1]:.1%} 95% CI upper bound)"
             else:
                 winner = "ModelGate" if mg_ci[1] < bl_ci[0] else "Baseline"
         else:
@@ -631,43 +643,114 @@ def _generate_benchmark_markdown(
             "## Baseline Definitions",
             "",
             "1. **Two-Sided Accuracy-Change Baseline (`|acc_champ - acc_cand| > 0.01`, shown in the table above)**: Flags any trial where overall test accuracy changes by more than 1 percentage point in either direction (drop or increase).",
-            "   - Under this definition, `feature_leakage` (`leaked = 0.9 * default + N(0, 0.1)`) is caught `30/30` by the baseline because the leaked feature artificially boosts test accuracy by ~8.5 percentage points (`~91.5% -> ~100.0%`), resulting in a **Tie (`30/30` vs `30/30`, overlapping 95% CIs `[88.6%, 100.0%]`)**.",
-            "   - On `label_shift` (corrupting 40% of training labels in `region=North`), ModelGate detects `30/30 (100.0%, [88.6%, 100.0%])` and the baseline detects `28/30 (93.3%, [78.7%, 98.2%])`. Because their 95% Wilson confidence intervals overlap (`[88.6%, 100.0%]` vs `[78.7%, 98.2%]`), this is also a statistical **Tie (overlapping 95% CIs)** at `N=30`.",
-            "2. **One-Sided Accuracy-Drop Baseline (`acc_champ - acc_cand > 0.01`)**: Flags only when overall test accuracy *drops* by more than 1 percentage point.",
-            "   - Under a one-sided accuracy-drop baseline, `feature_leakage` is detected in **0/30 (0.0%, Wilson 95% CI [0.0%, 11.4%])** trials (because leakage increases accuracy), whereas ModelGate's dedicated `run_leakage_check` detects **30/30 (100.0%, Wilson 95% CI [88.6%, 100.0%])**.",
+            "2. **One-Sided Accuracy-Drop Baseline (`acc_champ - acc_cand > 0.01`)**: Flags only when overall test accuracy *drops* by more than 1 percentage point (misses `feature_leakage`, which artificially increases accuracy, while ModelGate's `run_leakage_check` catches it directly).",
             "",
-            "## No-op False-Positive Rate & 11.4% Upper Bound",
+            "## No-op False-Positive Rate & Upper Bound",
             "",
-            "For the `noop` control (retraining the identical pipeline on clean data with candidate seed `s + 500`), both ModelGate and the baseline produced **0/30 (0.0%)** observed false positives across seeds `1000..1029`. At sample size `N=30`, `0/30` corresponds to a **Wilson 95% confidence interval of `[0.0%, 11.4%]`**, meaning the data is consistent with a true false-positive rate of up to **11.4%** at the 95% confidence level.",
-            "",
-            "## Independent Fairness Validation on Public Datasets (30 Fresh Seeds `4000..4029`, Frozen Defaults)",
-            "",
-            "Evaluated using the **full `run_fairness_check` gate** (`status in ('warn', 'fail')`, where champion-vs-candidate paired bootstrap gap CI across `demographic_parity_diff`, `equal_opportunity_diff`, `equalized_odds_diff`, and `calibration_gap_diff` is the default gate and static absolute DP limits are opt-in via `enforce_absolute=True` relative to the champion's own gap) across **30 fresh seeds (`4000..4029`)** on **UCI Adult (Census Income)** (`sex`, target `>50K`), **UCI German Credit (`credit-g`)** (`sex`, target `bad`), and **Synthetic Credit** (`gender`, target `default`) with frozen defaults (`max_gap_increase=0.02`, `fail_gap_increase=0.05`, `confidence=0.95`, `n_bootstrap=200`):",
-            "",
-            "| Dataset (`4000..4029`) | Fault | Full Fairness Check (Count, Rate, Wilson 95% CI) | Accuracy Baseline (`\\|Δacc\\| > 1%`) | Mean DP (`champ -> cand`) | Power / MDE Note (`80% power`) |",
-            "|------------------------|-------|--------------------------------------------------|--------------------------------------|---------------------------|--------------------------------|",
-            "| **UCI Adult** | `fairness_threshold_shift` (`τ=0.25`) | 3/30 (10.0%, [3.5%, 25.6%]) | 6/30 (20.0%, [9.5%, 37.3%]) | `0.159 -> 0.087` | `min_n=496, MDE_DP=0.065, MDE_EO=0.206` (note emitted 30/30) |",
-            "| **UCI Adult** | `fairness_threshold_shift_hi` (`τ=0.75`) | 30/30 (100.0%, [88.6%, 100.0%]) | 0/30 (0.0%, [0.0%, 11.4%]) | `0.159 -> 0.189` | `min_n=496, MDE_DP=0.065, MDE_EO=0.206` (note emitted 30/30) |",
-            "| **UCI Adult** | `fairness_proxy_feature` | 30/30 (100.0%, [88.6%, 100.0%]) | 19/30 (63.3%, [45.5%, 78.1%]) | `0.159 -> 0.070` | `min_n=496, MDE_DP=0.065, MDE_EO=0.206` (note emitted 30/30) |",
-            "| **UCI Adult** | `fairness_regression` | 30/30 (100.0%, [88.6%, 100.0%]) | 12/30 (40.0%, [24.6%, 57.7%]) | `0.159 -> 0.091` | `min_n=496, MDE_DP=0.065, MDE_EO=0.206` (note emitted 30/30) |",
-            "| **UCI Adult** | `noop` (FP rate) | **0/30 (0.0% FP, [0.0%, 11.4%])** | **0/30 (0.0% FP, [0.0%, 11.4%])** | `0.159 -> 0.159` | `min_n=496, MDE_DP=0.065, MDE_EO=0.206` (note emitted 30/30) |",
-            "| **German Credit** | `fairness_threshold_shift` (`τ=0.25`) | 30/30 (100.0%, [88.6%, 100.0%]) | 26/30 (86.7%, [70.3%, 94.7%]) | `0.052 -> 0.374` | `min_n=111, MDE_DP=0.147, MDE_EO=0.286` (note emitted 30/30) |",
-            "| **German Credit** | `fairness_threshold_shift_hi` (`τ=0.75`) | 21/30 (70.0%, [52.1%, 83.3%]) | 23/30 (76.7%, [59.1%, 88.2%]) | `0.052 -> 0.146` | `min_n=111, MDE_DP=0.147, MDE_EO=0.286` (note emitted 30/30) |",
-            "| **German Credit** | `fairness_proxy_feature` | 30/30 (100.0%, [88.6%, 100.0%]) | 28/30 (93.3%, [78.7%, 98.2%]) | `0.052 -> 0.365` | `min_n=111, MDE_DP=0.147, MDE_EO=0.286` (note emitted 30/30) |",
-            "| **German Credit** | `fairness_regression` | 30/30 (100.0%, [88.6%, 100.0%]) | 25/30 (83.3%, [66.4%, 92.7%]) | `0.052 -> 0.357` | `min_n=111, MDE_DP=0.147, MDE_EO=0.286` (note emitted 30/30) |",
-            "| **German Credit** | `noop` (FP rate) | **0/30 (0.0% FP, [0.0%, 11.4%])** | **2/30 (6.7% FP, [1.8%, 21.3%])** | `0.052 -> 0.054` | `min_n=111, MDE_DP=0.147, MDE_EO=0.286` (note emitted 30/30) |",
-            "| **Synthetic Credit** | `fairness_threshold_shift` (`τ=0.25`) | 10/30 (33.3%, [19.2%, 51.2%]) | 1/30 (3.3%, [0.6%, 16.7%]) | `0.002 -> 0.013` | `min_n=682, MDE_DP=0.042 <= 0.05` (note emitted 0/30) |",
-            "| **Synthetic Credit** | `fairness_threshold_shift_hi` (`τ=0.75`) | 0/30 (0.0%, [0.0%, 11.4%]) | 0/30 (0.0%, [0.0%, 11.4%]) | `0.002 -> 0.003` | `min_n=682, MDE_DP=0.042 <= 0.05` (note emitted 0/30) |",
-            "| **Synthetic Credit** | `fairness_proxy_feature` | 30/30 (100.0%, [88.6%, 100.0%]) | 29/30 (96.7%, [83.3%, 99.4%]) | `0.002 -> 0.056` | `min_n=682, MDE_DP=0.042 <= 0.05` (note emitted 0/30) |",
-            "| **Synthetic Credit** | `fairness_regression` | 30/30 (100.0%, [88.6%, 100.0%]) | 14/30 (46.7%, [30.2%, 63.9%]) | `0.002 -> 0.029` | `min_n=682, MDE_DP=0.042 <= 0.05` (note emitted 0/30) |",
-            "| **Synthetic Credit** | `noop` (FP rate) | **0/30 (0.0% FP, [0.0%, 11.4%])** | **0/30 (0.0% FP, [0.0%, 11.4%])** | `0.002 -> 0.002` | `min_n=682, MDE_DP=0.042 <= 0.05` (note emitted 0/30) |",
+            f"For the `noop` control (retraining the identical pipeline on clean data with candidate seed `s + 500`), ModelGate produced **{noop_mg_k}/{noop_n} ({noop_mg_rate:.1%})** and the baseline produced **{noop_bl_k}/{noop_n} ({noop_bl_rate:.1%})** observed false positives across seeds `{seeds[0]}..{seeds[-1]}` (Wilson 95% CI `[{noop_mg_ci[0]:.1%}, {noop_mg_ci[1]:.1%}]`).",
+        ]
+    )
+
+    pub = data.get("public_fairness_benchmark")
+    if isinstance(pub, dict) and pub.get("rows"):
+        pub_seeds: list[int] = list(pub.get("seeds", []))
+        pub_range = (
+            f"{pub_seeds[0]}..{pub_seeds[-1]}"
+            if pub_seeds
+            else str(pub.get("seed_range", "unknown"))
+        )
+        pub_cmd = str(pub.get("command", "python scripts/bench_public.py"))
+        pub_commit = str(pub.get("commit_hash", commit_hash))
+        frozen = pub.get("frozen_settings", {})
+        frozen_str = ", ".join(f"`{k}={v}`" for k, v in frozen.items())
+
+        lines.extend(
+            [
+                "",
+                f"## Independent Fairness Validation on Public Datasets ({len(pub_seeds) or 30} Fresh Seeds `{pub_range}`, Frozen Defaults)",
+                "",
+                f"- **Command**: `{pub_cmd}`",
+                f"- **Commit Hash**: `{pub_commit}`",
+                f"- **Frozen `FairnessConfig` Settings**: {frozen_str}",
+                "",
+                "Evaluated using the **full `run_fairness_check` gate** (`status in ('warn', 'fail')`: paired bootstrap gap CI across demographic parity, equal opportunity, equalized odds, and per-group calibration + two-sided paired bootstrap per-group selection-rate shift at `WARN` level; static absolute DP opt-in via `enforce_absolute=True` relative to champion):",
+                "",
+                f"| Dataset (`{pub_range}`) | Fault | Full Fairness Check (Count, Rate, Wilson 95% CI; Fail/Warn) | Accuracy Baseline (`\\|Δacc\\| > 1%`) | Mean DP (`champ -> cand`) | Power / MDE Note (`80% power`) |",
+                "|------------------------|-------|------------------------------------------------------------|--------------------------------------|---------------------------|--------------------------------|",
+            ]
+        )
+
+        for row in pub["rows"]:
+            ds = row["dataset"]
+            flt = row["fault_label"]
+            n_t = int(row["n_trials"])
+            det = int(row["detected_total"])
+            det_fail = int(row["detected_fail"])
+            det_warn = int(row["detected_warn"])
+            rate = float(row["detection_rate"])
+            ci = row["ci_95"]
+            bl_det = int(row["baseline_detected"])
+            bl_rate = float(row["baseline_rate"])
+            bl_ci = row["baseline_ci_95"]
+            dp_str = f"`{row['mean_champ_dp']:.3f} -> {row['mean_cand_dp']:.3f}`"
+            note_cnt = int(row["power_note_count"])
+            mde_str = (
+                f"`min_n={row['mean_min_n']:.0f}, MDE_DP={row['mean_mde_dp']:.3f}, "
+                f"MDE_EO={row['mean_mde_eo']:.3f}` (note emitted {note_cnt}/{n_t})"
+            )
+            if row["fault"] == "noop":
+                mg_cell = f"**{det}/{n_t} ({rate:.1%} FP, [{ci[0]:.1%}, {ci[1]:.1%}]; {det_fail}F/{det_warn}W)**"
+                bl_cell = f"**{bl_det}/{n_t} ({bl_rate:.1%} FP, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])**"
+            else:
+                mg_cell = (
+                    f"{det}/{n_t} ({rate:.1%}, [{ci[0]:.1%}, {ci[1]:.1%}]; {det_fail}F/{det_warn}W)"
+                )
+                bl_cell = f"{bl_det}/{n_t} ({bl_rate:.1%}, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])"
+            lines.append(f"| **{ds}** | {flt} | {mg_cell} | {bl_cell} | {dp_str} | {mde_str} |")
+
+    lines.extend(
+        [
             "",
             "## Methodology",
             "",
-            f"Each fault is injected across {len(seeds)} independent random seeds (`{seeds[0]}..{seeds[-1]}`). "
+            f"Each synthetic fault is injected across {len(seeds)} independent random seeds (`{seeds[0]}..{seeds[-1]}`). "
             "For each seed `s`, training data (`N=3000`) is generated with `RandomState(s)` and held-out test data (`N=1500`) with `RandomState(s + 1000)`. "
+            "Public fairness datasets (UCI Adult `adult` v2 and German Credit `credit-g` v1) are fetched directly from OpenML via `scripts/bench_public.py`. "
             "Confidence intervals are calculated using the Wilson score interval at the 95% confidence level (`z = 1.95996`).",
         ]
     )
 
-    path.write_text("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    md_path.write_text(content)
+    return content
+
+
+def _generate_benchmark_markdown(
+    summary: dict[str, dict[str, Any]],
+    path: Path,
+    commit_hash: str = "unknown",
+    seeds: list[int] | None = None,
+    command_str: str = "modelgate bench",
+) -> None:
+    """Compatibility wrapper that renders benchmark markdown via the JSON-backed renderer."""
+    import tempfile
+
+    if seeds is None:
+        first_entry: dict[str, Any] = next(iter(summary.values()), {})
+        n_default = int(first_entry.get("n_trials", 30))
+        seeds = [1000 + i for i in range(n_default)]
+    payload = {
+        "command": command_str,
+        "commit_hash": commit_hash,
+        "n_seeds": len(seeds),
+        "seed_range": f"{seeds[0]}..{seeds[-1]}" if seeds else "",
+        "seeds": seeds,
+        "summary": summary,
+    }
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(payload, tf, indent=2)
+        tmp_json = Path(tf.name)
+    try:
+        generate_benchmark_markdown_from_json(tmp_json, path)
+    finally:
+        tmp_json.unlink(missing_ok=True)

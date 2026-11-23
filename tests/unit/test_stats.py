@@ -21,6 +21,8 @@ from modelgate.stats import (
     ks_test,
     paired_bootstrap_ci,
     paired_bootstrap_gap_ci,
+    paired_bootstrap_group_rate_shift_ci,
+    paired_bootstrap_median_ratio_ci,
     per_group_calibration,
 )
 
@@ -337,3 +339,39 @@ class TestEqualizedOddsAndCalibration:
         assert boot.point_estimate > 0.2
         assert boot.ci_lower > 0.15
         assert boot.p_value == 0.0
+
+    def test_paired_bootstrap_median_ratio_ci(self) -> None:
+        """Paired bootstrap median ratio CI captures slowdown and cancels shared jitter."""
+        champ = np.array([1.0, 1.1, 0.9, 1.0, 1.2, 1.0, 1.1, 0.95, 1.05, 1.0])
+        cand = champ * 2.0
+        res = paired_bootstrap_median_ratio_ci(champ, cand, n_bootstrap=500, seed=42)
+        assert abs(res.point_estimate - 2.0) < 1e-6
+        assert res.ci_lower > 1.8
+        assert res.p_value == 0.0
+
+        empty = paired_bootstrap_median_ratio_ci(np.array([]), np.array([]), n_bootstrap=100)
+        assert empty.point_estimate == 1.0
+
+    def test_paired_bootstrap_group_rate_shift_ci_two_sided(self) -> None:
+        """Two-sided paired bootstrap detects both positive and negative group rate shifts."""
+        n = 400
+        protected = np.array(["a"] * 200 + ["b"] * 200)
+        champ = np.zeros(n, dtype=int)
+        champ[:100] = 1  # group a: 0.50, group b: 0.00
+        cand = champ.copy()
+        cand[:60] = 1
+        cand[60:100] = 0  # group a drops 0.50 -> 0.30 (-0.20)
+        cand[200:240] = 1  # group b rises 0.00 -> 0.20 (+0.20)
+
+        res_a = paired_bootstrap_group_rate_shift_ci(champ, cand, protected, "a", seed=42)
+        assert abs(res_a.point_estimate - (-0.20)) < 1e-6
+        assert res_a.ci_upper < -0.10
+        assert res_a.p_value < 0.01
+
+        res_b = paired_bootstrap_group_rate_shift_ci(champ, cand, protected, "b", seed=42)
+        assert abs(res_b.point_estimate - 0.20) < 1e-6
+        assert res_b.ci_lower > 0.10
+        assert res_b.p_value < 0.01
+
+        res_empty = paired_bootstrap_group_rate_shift_ci(champ, cand, protected, "missing")
+        assert res_empty.point_estimate == 0.0 and res_empty.p_value == 1.0

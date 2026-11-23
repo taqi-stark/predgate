@@ -32,73 +32,79 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install ModelGate
-        run: pip install -e ".[dev]"
+      - name: Fetch trusted base branch & install pinned ModelGate
+        id: trusted_setup
+        run: |
+          set -euo pipefail
+          BASE_REF="${{ github.base_ref }}"
+          if [ -z "$BASE_REF" ]; then
+            echo "::error::Missing github.base_ref; refusing to run without a verified base branch" >&2
+            exit 1
+          fi
 
-      - name: Check champion modification approval
-        id: champ_approval
-        uses: actions/github-script@v7
-        with:
-          script: |
-            let approved = false;
-            try {
-              const { data: reviews } = await github.rest.pulls.listReviews({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.issue.number,
-              });
-              const latestByUser = new Map();
-              for (const r of reviews) {
-                if (r.user && r.state && r.state !== 'COMMENTED') {
-                  latestByUser.set(r.user.login, r.state);
-                }
-              }
-              approved = Array.from(latestByUser.values()).includes('APPROVED');
-            } catch (err) {
-              core.warning(`Could not query PR reviews: ${err.message}`);
-            }
-            core.setOutput('approved', approved ? 'true' : 'false');
+          # Fail closed if the base ref cannot be fetched or resolved
+          git fetch --no-tags --depth=1 origin "${BASE_REF}"
+          BASE_COMMIT=$(git rev-parse --verify "origin/${BASE_REF}^{commit}")
+
+          # Install ModelGate from the trusted committed base branch, never from the untrusted PR head
+          TRUSTED_DIR="${RUNNER_TEMP}/modelgate-trusted"
+          rm -rf "${TRUSTED_DIR}"
+          mkdir -p "${TRUSTED_DIR}"
+          git archive "${BASE_COMMIT}" | tar -x -C "${TRUSTED_DIR}"
+
+          python -m pip install --upgrade pip
+          pip install "${TRUSTED_DIR}"
+
+          echo "base_ref=${BASE_REF}" >> "$GITHUB_OUTPUT"
+          echo "base_commit=${BASE_COMMIT}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify champion baseline from base branch
+        id: verify_champion
+        run: |
+          set -euo pipefail
+          BASE_REF="${{ steps.trusted_setup.outputs.base_ref }}"
+
+          # Surface notice if the PR modifies champion/; merge gating is enforced by GitHub branch protection + CODEOWNERS
+          if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq '^(champion/|champion\.dvc$)'; then
+            echo "::notice::PR modifies champion baseline; evaluating against trusted base-branch champion. Merge requires CODEOWNERS approval via branch protection."
+          fi
+
+          # Extract pinned SHA-256 from base branch champion.dvc (fallback: champion/metadata.json) and fail closed if missing
+          PINNED_SHA=$(git show "origin/${BASE_REF}:champion.dvc" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" 2>/dev/null || true)
+          if [ -z "$PINNED_SHA" ]; then
+            PINNED_SHA=$(git show "origin/${BASE_REF}:champion/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" 2>/dev/null || true)
+          fi
+          if [ -z "$PINNED_SHA" ]; then
+            echo "::error::Could not determine pinned champion SHA-256 from origin/${BASE_REF}; failing closed" >&2
+            exit 1
+          fi
+
+          # Always load champion/ and champion.dvc from the trusted base branch (fail closed if missing)
+          git checkout "origin/${BASE_REF}" -- champion champion.dvc
+
+          # Verify SHA-256 against pinned base-branch value before any untrusted PR code runs
+          modelgate baseline verify \
+            --dir champion \
+            --dvc champion.dvc \
+            --pinned-sha256 "$PINNED_SHA"
+
+          echo "pinned_sha=${PINNED_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Generate demo data
         run: python demo/train.py
 
-      - name: Verify & load champion baseline from base branch
-        env:
-          ALLOW_CHAMPION_UPDATE: ${{ steps.champ_approval.outputs.approved }}
+      - name: Import verified champion baseline into MLflow
         run: |
-          BASE_REF="${{ github.base_ref }}"
-          git fetch origin "${BASE_REF}"
-          mapfile -t CHANGED_FILES < <(git diff --name-only "origin/${BASE_REF}...HEAD")
-          CHANGED_ARGS=()
-          for f in "${CHANGED_FILES[@]}"; do
-            if [ -n "$f" ]; then
-              CHANGED_ARGS+=(--changed-file "$f")
-            fi
-          done
-
-          # Extract pinned SHA-256 from base branch champion.dvc (fallback: champion/metadata.json)
-          PINNED_SHA=$(git show "origin/${BASE_REF}:champion.dvc" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" || true)
-          if [ -z "$PINNED_SHA" ]; then
-            PINNED_SHA=$(git show "origin/${BASE_REF}:champion/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" || true)
-          fi
-
-          # Always load champion/ and champion.dvc from the trusted base branch
-          git checkout "origin/${BASE_REF}" -- champion champion.dvc
-
-          # Verify SHA-256 against pinned base-branch value and reject unapproved champion/ changes
-          modelgate baseline verify \
-            --dir champion \
-            --dvc champion.dvc \
-            --pinned-sha256 "$PINNED_SHA" \
-            "${CHANGED_ARGS[@]}"
-
+          set -euo pipefail
           modelgate baseline import \
             --config modelgate.yaml \
             --dir champion \
-            --pinned-sha256 "$PINNED_SHA"
+            --pinned-sha256 "${{ steps.verify_champion.outputs.pinned_sha }}"
 
       - name: Run ModelGate
         id: gate
+        env:
+          CHAMPION_PINNED_SHA256: ${{ steps.verify_champion.outputs.pinned_sha }}
         run: |
           modelgate run \
             --config modelgate.yaml \

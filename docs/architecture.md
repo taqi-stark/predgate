@@ -115,8 +115,8 @@ config.py ──► loader.py
 | **4. Label Shift** | Overall or subgroup target rate shift (Holm-Bonferroni two-proportion z-test) | `warn` at `Δ >= 0.05`, `fail` at `Δ >= 0.10` (`α = 0.01`) |
 | **5. Slice Regression** | Per-group metric drop with vectorized paired bootstrap 95% CI | `fail` if drop > `max_drop` |
 | **6. Behavioral** | Invariance (protected/ID attr flip) & directional metamorphic tests | `fail` if flip > `max_flip_rate` |
-| **7. Budgets** | p95 inference latency, serialized size, peak memory | `fail` if any budget exceeded |
-| **8. Fairness** | Demographic parity, equalized odds, and per-group calibration with paired bootstrap gap CI | `warn` at 0.05 (or gap `+0.02`), `fail` at 0.10 (or gap `+0.05`) |
+| **7. Budgets** | Interleaved batched median latency ratio with paired bootstrap 95% CI (optional absolute `p95_latency_ms`), serialized size, peak memory | `fail` if ratio CI lower > `max_latency_ratio` (or size/mem/optional p95 exceeded); `warn` if ratio > budget and CI lower > 1.0 |
+| **8. Fairness** | Champion-vs-candidate paired bootstrap gap CI (DP, EO, eq. odds, calibration) + two-sided per-group selection-rate shift + 80%-power MDE notes; opt-in absolute DP relative to champion (`enforce_absolute`) | `fail` on significant gap regression (`+0.05` or CI lower `>= 0.02`); `warn` on moderate gap increase or significant per-group selection-rate shift (`\|Δ\| >= 0.02`) |
 
 ---
 

@@ -248,15 +248,10 @@ def load_candidate_and_champion(
         baseline_dir = Path(getattr(config.champion, "baseline_dir", "champion"))
         baseline_model_path = baseline_dir / "model.pkl"
         if baseline_model_path.exists():
-            dvc_candidate = baseline_dir.parent / f"{baseline_dir.name}.dvc"
-            if (
-                (baseline_dir / "metadata.json").exists()
-                or dvc_candidate.exists()
-                or os.environ.get("CHAMPION_PINNED_SHA256", "").strip()
-            ):
-                from modelgate.registry import verify_champion_integrity
+            from modelgate.registry import verify_champion_integrity
 
-                verify_champion_integrity(baseline_dir=baseline_dir)
+            # Always fail closed: require manifest or pinned SHA-256 verification before unpickling
+            verify_champion_integrity(baseline_dir=baseline_dir)
             try:
                 import pickle
 
@@ -264,12 +259,11 @@ def load_candidate_and_champion(
                     champion_model = pickle.load(f)
                 champion_model.predict(test_df.drop(columns=[target]).iloc[:2])
                 is_first_run = False
-            except Exception:
-                try:
-                    champion_model = build_fn(X_train, y_train, seed=config.seed)
-                    is_first_run = False
-                except Exception:
-                    pass
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to load or run verified champion baseline pickle '{baseline_model_path}': {exc}. "
+                    "Refusing to silently retrain champion from candidate entrypoint."
+                ) from exc
 
     # Build lineage
     lineage = LineageInfo(
