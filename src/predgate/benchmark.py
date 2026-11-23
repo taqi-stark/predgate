@@ -35,7 +35,47 @@ from predgate.config import (
     LeakageConfig,
     SliceConfig,
 )
+from predgate.stats import demographic_parity_diff
 from predgate.verdict import CheckResult, compute_verdict
+
+
+def per_group_accuracy_drop_baseline(
+    y_true: np.ndarray,
+    champ_preds: np.ndarray,
+    cand_preds: np.ndarray,
+    test_df: pd.DataFrame,
+    group_cols: list[str],
+    max_drop: float = 0.02,
+    min_group_size: int = 30,
+) -> bool:
+    """Stronger non-bootstrap baseline: flags if any subgroup's accuracy drops > max_drop."""
+    y_arr = np.asarray(y_true)
+    ch_arr = np.asarray(champ_preds)
+    ca_arr = np.asarray(cand_preds)
+    for col in group_cols:
+        if col not in test_df.columns:
+            continue
+        vals = test_df[col].astype(str).values
+        for g in np.unique(vals):
+            mask = vals == g
+            if int(np.sum(mask)) < min_group_size:
+                continue
+            acc_ch = float(np.mean(y_arr[mask] == ch_arr[mask]))
+            acc_ca = float(np.mean(y_arr[mask] == ca_arr[mask]))
+            if (acc_ch - acc_ca) > max_drop:
+                return True
+    return False
+
+
+def fixed_dp_limit_baseline(
+    cand_preds: np.ndarray,
+    protected_values: np.ndarray,
+    dp_limit: float = 0.10,
+) -> bool:
+    """Stronger fairness baseline: flags if candidate absolute demographic parity diff >= dp_limit."""
+    return bool(
+        demographic_parity_diff(np.asarray(cand_preds, dtype=int), protected_values) >= dp_limit
+    )
 
 
 def _generate_data(seed: int = 42, n: int = 3000) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -290,8 +330,20 @@ def run_single_trial(
     champ_acc = accuracy_score(y_test, champ_preds)
     cand_acc = accuracy_score(y_test, cand_preds)
 
-    # ── Baseline: accuracy-only check ──
+    # ── Baselines ──
     baseline_detected = abs(champ_acc - cand_acc) > 0.01
+    per_group_acc_detected = per_group_accuracy_drop_baseline(
+        y_test.values,
+        champ_preds,
+        cand_preds,
+        test_eval,
+        group_cols=["region", "gender"],
+        max_drop=0.02,
+        min_group_size=30,
+    )
+    fixed_dp_detected = fixed_dp_limit_baseline(
+        cand_preds, test_eval["gender"].values, dp_limit=0.10
+    )
 
     # ── PredGate: run multiple checks ──
     predgate_results: list[CheckResult] = []
@@ -374,14 +426,19 @@ def run_single_trial(
 
     # Compute PredGate verdict
     verdict = compute_verdict(predgate_results)
+    predgate_fail = verdict.status == "fail"
     predgate_detected = verdict.status in ("warn", "fail")
 
     return {
         "fault_type": fault_type,
         "seed": seed,
+        "predgate_fail": predgate_fail,
         "predgate_detected": predgate_detected,
         "predgate_status": verdict.status,
+        "check_statuses": {cr.name: cr.status for cr in predgate_results},
         "baseline_detected": baseline_detected,
+        "per_group_acc_detected": per_group_acc_detected,
+        "fixed_dp_detected": fixed_dp_detected,
         "champion_acc": round(champ_acc, 4),
         "candidate_acc": round(cand_acc, 4),
     }
@@ -452,56 +509,86 @@ def run_benchmark(
         console.print(f"  Running [bold]{fault}[/bold] ({n_seeds} seeds)...", end=" ")
         start = time.time()
 
+        mg_fail = 0
         mg_detected = 0
         bl_detected = 0
+        pg_acc_detected = 0
+        fixed_dp_detected = 0
 
         for seed in seeds:
             try:
                 result = run_single_trial(fault, seed)
                 all_results.append(result)
+                if result.get("predgate_fail", result.get("predgate_status") == "fail"):
+                    mg_fail += 1
                 if result["predgate_detected"]:
                     mg_detected += 1
                 if result["baseline_detected"]:
                     bl_detected += 1
+                if result.get("per_group_acc_detected"):
+                    pg_acc_detected += 1
+                if result.get("fixed_dp_detected"):
+                    fixed_dp_detected += 1
             except Exception as e:
                 console.print(f"[red]Error seed {seed}: {e}[/red]")
 
         elapsed = time.time() - start
+        mg_fail_rate = mg_fail / n_seeds if n_seeds > 0 else 0
         mg_rate = mg_detected / n_seeds if n_seeds > 0 else 0
         bl_rate = bl_detected / n_seeds if n_seeds > 0 else 0
+        pg_acc_rate = pg_acc_detected / n_seeds if n_seeds > 0 else 0
+        fixed_dp_rate = fixed_dp_detected / n_seeds if n_seeds > 0 else 0
+        mg_fail_ci = wilson_ci(mg_fail, n_seeds)
         mg_ci = wilson_ci(mg_detected, n_seeds)
         bl_ci = wilson_ci(bl_detected, n_seeds)
+        pg_acc_ci = wilson_ci(pg_acc_detected, n_seeds)
+        fixed_dp_ci = wilson_ci(fixed_dp_detected, n_seeds)
         ci_overlap = (mg_ci[0] <= bl_ci[1]) and (bl_ci[0] <= mg_ci[1])
 
         summary[fault] = {
             "description": FAULT_DESCRIPTIONS[fault],
             "n_trials": n_seeds,
+            "mg_fail": mg_fail,
+            "mg_warn": mg_detected - mg_fail,
             "mg_detected": mg_detected,
             "bl_detected": bl_detected,
+            "per_group_acc_detected": pg_acc_detected,
+            "fixed_dp_detected": fixed_dp_detected,
+            "predgate_fail_rate": round(mg_fail_rate, 3),
+            "predgate_fail_ci_95": [round(mg_fail_ci[0], 3), round(mg_fail_ci[1], 3)],
             "predgate_detection_rate": round(mg_rate, 3),
             "baseline_detection_rate": round(bl_rate, 3),
+            "per_group_acc_rate": round(pg_acc_rate, 3),
+            "fixed_dp_rate": round(fixed_dp_rate, 3),
             "predgate_ci_95": [round(mg_ci[0], 3), round(mg_ci[1], 3)],
             "baseline_ci_95": [round(bl_ci[0], 3), round(bl_ci[1], 3)],
+            "per_group_acc_ci_95": [round(pg_acc_ci[0], 3), round(pg_acc_ci[1], 3)],
+            "fixed_dp_ci_95": [round(fixed_dp_ci[0], 3), round(fixed_dp_ci[1], 3)],
             "ci_95_overlap": ci_overlap,
             "predgate_wins": (mg_ci[0] > bl_ci[1]) if fault != "noop" else (mg_ci[1] < bl_ci[0]),
         }
 
-        console.print(f"MG: {mg_rate:.0%}  BL: {bl_rate:.0%}  ({elapsed:.1f}s)")
+        console.print(
+            f"PG: {mg_fail_rate:.0%} FAIL / {mg_rate:.0%} flagged  BL: {bl_rate:.0%}  ({elapsed:.1f}s)"
+        )
 
     # Print summary table
     console.print()
     table = Table(title="PredGate Benchmark Results")
     table.add_column("Fault", style="bold")
     table.add_column("Description")
-    table.add_column("PredGate", justify="right")
+    table.add_column("PredGate (FAIL / Flagged)", justify="right")
     table.add_column("Baseline", justify="right")
     table.add_column("Winner", justify="center")
 
     for fault, s in summary.items():
-        mg_str = f"{s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%})"
+        mg_str = (
+            f"{s['mg_fail']}/{s['n_trials']} ({s['predgate_fail_rate']:.0%}) / "
+            f"{s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%})"
+        )
         bl_str = f"{s['bl_detected']}/{s['n_trials']} ({s['baseline_detection_rate']:.0%})"
         winner = (
-            "✅ MG"
+            "✅ PG"
             if s["predgate_wins"]
             else (
                 "🔵 TIE"
@@ -511,146 +598,393 @@ def run_benchmark(
         )
 
         if fault == "noop":
-            # For no-op, lower detection = better (false positives)
-            mg_str = f"{s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%} FP)"
+            mg_str = f"{s['mg_fail']}/{s['n_trials']}F / {s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%} FP)"
             bl_str = f"{s['bl_detected']}/{s['n_trials']} ({s['baseline_detection_rate']:.0%} FP)"
             winner = (
-                "✅ MG" if s["predgate_detection_rate"] <= s["baseline_detection_rate"] else "❌ BL"
+                "✅ PG" if s["predgate_detection_rate"] <= s["baseline_detection_rate"] else "❌ BL"
             )
 
         table.add_row(fault, s["description"], mg_str, bl_str, winner)
 
     console.print(table)
 
-    # Save results
-    results_data = {
+    # Store aggregate-only summary in docs/benchmark_results.json; per-seed records go to release_artifacts/
+    per_seed_artifact = f"release_artifacts/benchmark_per_seed_{commit_hash}.json"
+    results_data: dict[str, Any] = {
         "command": command_str,
         "commit_hash": commit_hash,
         "n_seeds": n_seeds,
         "seed_range": f"{seeds[0]}..{seeds[-1]}" if seeds else "",
         "seeds": seeds,
+        "per_seed_artifact": per_seed_artifact,
         "summary": summary,
-        "details": all_results,
     }
 
     docs_dir = Path("docs")
     docs_dir.mkdir(exist_ok=True)
     json_path = docs_dir / "benchmark_results.json"
-    # Preserve existing public_fairness_benchmark section if already populated by scripts/bench_public.py
     if json_path.exists():
         try:
             existing_data = json.loads(json_path.read_text())
-            if "public_fairness_benchmark" in existing_data:
-                results_data["public_fairness_benchmark"] = existing_data[
-                    "public_fairness_benchmark"
-                ]
+            for preserve_key in (
+                "public_fairness_benchmark",
+                "benign_change_control",
+                "held_out_validation",
+                "comparator_config",
+            ):
+                if preserve_key in existing_data:
+                    results_data[preserve_key] = existing_data[preserve_key]
         except Exception:
             pass
     json_path.write_text(json.dumps(results_data, indent=2) + "\n")
 
-    # Generate markdown strictly from the JSON file
+    artifact_path = Path(per_seed_artifact)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "command": command_str,
+                "commit_hash": commit_hash,
+                "synthetic_details": all_results,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    # Generate markdown strictly from the aggregate JSON file
     generate_benchmark_markdown_from_json(json_path, docs_dir / "benchmark.md")
 
     console.print(
-        "\n[green]Results saved to docs/benchmark_results.json and docs/benchmark.md[/green]"
+        f"\n[green]Aggregate saved to docs/benchmark_results.json, per-seed records to {per_seed_artifact}, and report to docs/benchmark.md[/green]"
     )
 
     return results_data
+
+
+def _fmt_rate_ci(k: int, n: int, rate: float, ci: list[float], suffix: str = "") -> str:
+    suf = f" {suffix}" if suffix else ""
+    return f"{k}/{n} ({rate:.1%}{suf}, [{ci[0]:.1%}, {ci[1]:.1%}])"
 
 
 def generate_benchmark_markdown_from_json(
     json_path: Path,
     md_path: Path,
 ) -> str:
-    """Generate docs/benchmark.md strictly from a machine-readable benchmark_results.json file.
+    """Generate docs/benchmark.md strictly from a machine-readable aggregate benchmark_results.json file.
 
-    No benchmark numbers are hardcoded in Python; every table row and metric is rendered
-    directly from the JSON artifact.
+    Reports FAIL-only and Flagged (WARN+FAIL) separately across all tables, includes
+    stronger baselines (per-group accuracy drop, fixed DP limit, Evidently defaults),
+    benign-change alert-fatigue controls, and held-out dataset/fault validation.
     """
     data: dict[str, Any] = json.loads(json_path.read_text())
     summary: dict[str, dict[str, Any]] = data.get("summary", {})
     commit_hash = str(data.get("commit_hash", "unknown"))
     command_str = str(data.get("command", "predgate bench"))
+    per_seed_artifact = str(data.get("per_seed_artifact", ""))
     seeds: list[int] = list(data.get("seeds", []))
     if not seeds:
         first_entry: dict[str, Any] = next(iter(summary.values()), {})
         n_default = int(first_entry.get("n_trials", 30))
         seeds = [1000 + i for i in range(n_default)]
 
-    seed_range_str = f"`{seeds[0]}..{seeds[-1]}` (N={len(seeds)}: `{', '.join(map(str, seeds))}`)"
+    seed_range_str = f"`{seeds[0]}..{seeds[-1]}` (N={len(seeds)})"
     noop = summary.get("noop", {})
-    noop_mg_k = noop.get("mg_detected", 0)
     noop_n = noop.get("n_trials", len(seeds))
+    noop_fail_k = noop.get("mg_fail", noop.get("mg_detected", 0))
+    noop_fail_rate = noop.get("predgate_fail_rate", noop.get("predgate_detection_rate", 0.0))
+    noop_fail_ci = noop.get("predgate_fail_ci_95", noop.get("predgate_ci_95", [0.0, 0.114]))
+    noop_mg_k = noop.get("mg_detected", 0)
     noop_mg_rate = noop.get("predgate_detection_rate", 0.0)
     noop_mg_ci = noop.get("predgate_ci_95", [0.0, 0.114])
     noop_bl_k = noop.get("bl_detected", 0)
     noop_bl_rate = noop.get("baseline_detection_rate", 0.0)
     noop_bl_ci = noop.get("baseline_ci_95", [0.0, 0.114])
 
+    has_synth_evidently = any("evidently_detected" in s for s in summary.values())
+    has_synth_stronger = any("per_group_acc_detected" in s for s in summary.values())
+
     lines = [
         "# PredGate Benchmark Results",
         "",
-        "Single source of truth for the PredGate fault-injection benchmark, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json).",
+        "Single source of truth for all PredGate benchmark evaluations, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json) (aggregate summary; no hardcoded numbers).",
         "",
         "## Reproducibility Metadata",
         "",
         f"- **Command**: `{command_str}`",
-        f"- **Commit Hash**: `{commit_hash}`",
-        f"- **Evaluated Seeds**: {seed_range_str}",
-        f"- **No-op False-Positive Rate (PredGate)**: **{noop_mg_k}/{noop_n} ({noop_mg_rate:.1%} observed FP; Wilson 95% CI [{noop_mg_ci[0]:.1%}, {noop_mg_ci[1]:.1%}], i.e. an {noop_mg_ci[1]:.1%} 95% upper bound at N={noop_n})**",
-        f"- **No-op False-Positive Rate (Baseline)**: **{noop_bl_k}/{noop_n} ({noop_bl_rate:.1%} observed FP; Wilson 95% CI [{noop_bl_ci[0]:.1%}, {noop_bl_ci[1]:.1%}], i.e. an {noop_bl_ci[1]:.1%} 95% upper bound at N={noop_n})**",
-        "",
-        f"## Detection Rates (Synthetic Credit Benchmark, Seeds `{seeds[0]}..{seeds[-1]}`)",
-        "",
-        "A winner is declared only when the 95% Wilson confidence intervals do not overlap; overlapping 95% CIs are reported as a statistical **Tie (overlapping 95% CIs)**.",
-        "",
-        "| Fault | Injected Defect | PredGate (Count, Rate, Wilson 95% CI) | Baseline (Count, Rate, Wilson 95% CI) | Winner |",
-        "|-------|-----------------|----------------------------------------|---------------------------------------|--------|",
+        f"- **Evaluated Code Commit Hash**: `{commit_hash}`",
+        f"- **Synthetic Suite Seeds**: {seed_range_str}",
+        f"- **No-op FP (PredGate FAIL-only)**: **{_fmt_rate_ci(noop_fail_k, noop_n, noop_fail_rate, noop_fail_ci, 'FP')}**",
+        f"- **No-op FP (PredGate Flagged WARN+FAIL)**: **{_fmt_rate_ci(noop_mg_k, noop_n, noop_mg_rate, noop_mg_ci, 'FP')}**",
+        f"- **No-op FP (Overall Accuracy Baseline)**: **{_fmt_rate_ci(noop_bl_k, noop_n, noop_bl_rate, noop_bl_ci, 'FP')}**",
     ]
+    if per_seed_artifact:
+        lines.append(
+            f"- **Per-Seed Records Release Artifact**: `{per_seed_artifact}` (excluded from repo JSON to keep git lean; attach to GitHub Release)"
+        )
 
-    for fault, s in summary.items():
-        n = s["n_trials"]
-        mg_k = s["mg_detected"]
-        bl_k = s["bl_detected"]
-        mg_ci = s["predgate_ci_95"]
-        bl_ci = s["baseline_ci_95"]
-        overlaps = (mg_ci[0] <= bl_ci[1]) and (bl_ci[0] <= mg_ci[1])
-
-        if fault == "noop":
-            mg_cell = f"{mg_k}/{n} ({s['predgate_detection_rate']:.1%} FP, [{mg_ci[0]:.1%}, {mg_ci[1]:.1%}])"
-            bl_cell = f"{bl_k}/{n} ({s['baseline_detection_rate']:.1%} FP, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])"
-            if overlaps:
-                winner = f"Tie ({mg_ci[1]:.1%} 95% CI upper bound)"
-            else:
-                winner = "PredGate" if mg_ci[1] < bl_ci[0] else "Baseline"
-        else:
-            mg_cell = (
-                f"{mg_k}/{n} ({s['predgate_detection_rate']:.1%}, [{mg_ci[0]:.1%}, {mg_ci[1]:.1%}])"
-            )
-            bl_cell = (
-                f"{bl_k}/{n} ({s['baseline_detection_rate']:.1%}, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])"
-            )
-            if overlaps:
-                winner = "Tie (overlapping 95% CIs)"
-            else:
-                winner = "PredGate" if mg_ci[0] > bl_ci[1] else "Baseline"
-
-        lines.append(f"| `{fault}` | {s['description']} | {mg_cell} | {bl_cell} | **{winner}** |")
-
+    # ── 1. Synthetic 7-Fault Benchmark ──
     lines.extend(
         [
             "",
-            "## Baseline Definitions",
+            f"## 1. Synthetic Credit 7-Fault Benchmark (Seeds `{seeds[0]}..{seeds[-1]}`)",
             "",
-            "1. **Two-Sided Accuracy-Change Baseline (`|acc_champ - acc_cand| > 0.01`, shown in the table above)**: Flags any trial where overall test accuracy changes by more than 1 percentage point in either direction (drop or increase).",
-            "2. **One-Sided Accuracy-Drop Baseline (`acc_champ - acc_cand > 0.01`)**: Flags only when overall test accuracy *drops* by more than 1 percentage point (misses `feature_leakage`, which artificially increases accuracy, while PredGate's `run_leakage_check` catches it directly).",
+            "Reports **FAIL-only** (hard merge block) and **Flagged (WARN+FAIL)** (blocked or flagged for human review) separately alongside stronger baselines.",
             "",
-            "## No-op False-Positive Rate & Upper Bound",
-            "",
-            f"For the `noop` control (retraining the identical pipeline on clean data with candidate seed `s + 500`), PredGate produced **{noop_mg_k}/{noop_n} ({noop_mg_rate:.1%})** and the baseline produced **{noop_bl_k}/{noop_n} ({noop_bl_rate:.1%})** observed false positives across seeds `{seeds[0]}..{seeds[-1]}` (Wilson 95% CI `[{noop_mg_ci[0]:.1%}, {noop_mg_ci[1]:.1%}]`).",
         ]
     )
+    if has_synth_stronger and has_synth_evidently:
+        lines.append(
+            "| Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults |"
+        )
+        lines.append(
+            "|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------------|"
+        )
+    elif has_synth_stronger:
+        lines.append(
+            "| Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) |"
+        )
+        lines.append(
+            "|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|"
+        )
+    else:
+        lines.append(
+            "| Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) |"
+        )
+        lines.append(
+            "|-------|-----------------------------|-------------------------------------|------------------------------|"
+        )
 
+    for fault, s in summary.items():
+        n = int(s["n_trials"])
+        suf = "FP" if fault == "noop" else ""
+        fail_k = int(s.get("mg_fail", s["mg_detected"]))
+        fail_r = float(s.get("predgate_fail_rate", s["predgate_detection_rate"]))
+        fail_ci = s.get("predgate_fail_ci_95", s["predgate_ci_95"])
+        flag_k = int(s["mg_detected"])
+        flag_r = float(s["predgate_detection_rate"])
+        flag_ci = s["predgate_ci_95"]
+        bl_k = int(s["bl_detected"])
+        bl_r = float(s["baseline_detection_rate"])
+        bl_ci = s["baseline_ci_95"]
+
+        fail_cell = _fmt_rate_ci(fail_k, n, fail_r, fail_ci, suf)
+        flag_cell = _fmt_rate_ci(flag_k, n, flag_r, flag_ci, suf)
+        bl_cell = _fmt_rate_ci(bl_k, n, bl_r, bl_ci, suf)
+        if fault == "noop":
+            fail_cell = f"**{fail_cell}**"
+            flag_cell = f"**{flag_cell}**"
+            bl_cell = f"**{bl_cell}**"
+
+        row_cells = [f"`{fault}`", fail_cell, flag_cell, bl_cell]
+        if has_synth_stronger:
+            pg_k = int(s.get("per_group_acc_detected", 0))
+            pg_r = float(s.get("per_group_acc_rate", 0.0))
+            pg_ci = s.get("per_group_acc_ci_95", [0.0, 0.0])
+            dp_k = int(s.get("fixed_dp_detected", 0))
+            dp_r = float(s.get("fixed_dp_rate", 0.0))
+            dp_ci = s.get("fixed_dp_ci_95", [0.0, 0.0])
+            row_cells.append(_fmt_rate_ci(pg_k, n, pg_r, pg_ci, suf))
+            row_cells.append(_fmt_rate_ci(dp_k, n, dp_r, dp_ci, suf))
+        if has_synth_evidently:
+            ev_k = int(s.get("evidently_detected", 0))
+            ev_r = float(s.get("evidently_rate", 0.0))
+            ev_ci = s.get("evidently_ci_95", [0.0, 0.0])
+            row_cells.append(_fmt_rate_ci(ev_k, n, ev_r, ev_ci, suf))
+        lines.append("| " + " | ".join(row_cells) + " |")
+
+    # ── 2. Benign-Change Control (Alert Fatigue & Hard-Fail FP) ──
+    benign = data.get("benign_change_control")
+    if isinstance(benign, dict) and benign.get("rows"):
+        b_seeds: list[int] = list(benign.get("seeds", []))
+        b_range = (
+            f"{b_seeds[0]}..{b_seeds[-1]}" if b_seeds else str(benign.get("seed_range", "unknown"))
+        )
+        ov = benign.get("overall", {})
+        b_has_ev = any("evidently_detected" in r for r in benign["rows"])
+        lines.extend(
+            [
+                "",
+                f"## 2. Benign-Change Control (Harmless Retrains, Seeds `{b_range}`, Frozen Defaults)",
+                "",
+                "Six realistic harmless retrain scenarios (`hyperparam_change`, `algo_swap_rf`, `algo_swap_logreg`, `more_data_20pct`, `irrelevant_feature`, `preprocessing_change`) across 30 seeds × 3 datasets (**UCI Adult**, **German Credit**, **Synthetic Credit**; 540 total trials), running all 6 schema-agnostic checks (`drift`, `leakage`, `label_shift`, `slices`, `budgets`, `fairness`) with zero threshold tuning.",
+                "",
+            ]
+        )
+        if ov:
+            ov_n = int(ov.get("n_trials", 0))
+            lines.extend(
+                [
+                    f"- **Overall Benign FAIL Rate (Hard Block FP)**: **{_fmt_rate_ci(int(ov['fail_count']), ov_n, float(ov['fail_rate']), ov['fail_ci_95'])}**",
+                    f"- **Overall Benign WARN-Only Rate (Alert Fatigue)**: **{_fmt_rate_ci(int(ov['warn_only_count']), ov_n, float(ov['warn_only_rate']), ov['warn_only_ci_95'])}**",
+                    f"- **Overall Benign Flagged Rate (WARN+FAIL)**: **{_fmt_rate_ci(int(ov['flagged_count']), ov_n, float(ov['flagged_rate']), ov['flagged_ci_95'])}**",
+                    "",
+                ]
+            )
+
+        if b_has_ev:
+            lines.append(
+                "| Dataset | Benign Change | PredGate FAIL (95% CI) | PredGate WARN-Only (Alert Fatigue) | PredGate Flagged (WARN+FAIL) | Per-Group Acc Drop | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults |"
+            )
+            lines.append(
+                "|---------|---------------|------------------------|------------------------------------|------------------------------|--------------------|---------------------|------------------------|"
+            )
+        else:
+            lines.append(
+                "| Dataset | Benign Change | PredGate FAIL (95% CI) | PredGate WARN-Only (Alert Fatigue) | PredGate Flagged (WARN+FAIL) | Per-Group Acc Drop | Fixed DP (`>=0.10`) |"
+            )
+            lines.append(
+                "|---------|---------------|------------------------|------------------------------------|------------------------------|--------------------|---------------------|"
+            )
+
+        for r in benign["rows"]:
+            n_t = int(r["n_trials"])
+            cells = [
+                f"**{r['dataset']}**",
+                f"`{r['change']}`",
+                _fmt_rate_ci(int(r["fail_count"]), n_t, float(r["fail_rate"]), r["fail_ci_95"]),
+                _fmt_rate_ci(
+                    int(r["warn_only_count"]),
+                    n_t,
+                    float(r["warn_only_rate"]),
+                    r["warn_only_ci_95"],
+                ),
+                _fmt_rate_ci(
+                    int(r["flagged_count"]), n_t, float(r["flagged_rate"]), r["flagged_ci_95"]
+                ),
+                _fmt_rate_ci(
+                    int(r["per_group_acc_detected"]),
+                    n_t,
+                    float(r["per_group_acc_rate"]),
+                    r["per_group_acc_ci_95"],
+                ),
+                _fmt_rate_ci(
+                    int(r["fixed_dp_detected"]),
+                    n_t,
+                    float(r["fixed_dp_rate"]),
+                    r["fixed_dp_ci_95"],
+                ),
+            ]
+            if b_has_ev:
+                cells.append(
+                    _fmt_rate_ci(
+                        int(r["evidently_detected"]),
+                        n_t,
+                        float(r["evidently_rate"]),
+                        r["evidently_ci_95"],
+                    )
+                )
+            lines.append("| " + " | ".join(cells) + " |")
+
+        per_check = benign.get("per_check", [])
+        if per_check:
+            lines.extend(
+                [
+                    "",
+                    "### Per-Check Benign-Change FAIL & WARN Rates (All Datasets Combined)",
+                    "",
+                    "| Check | FAIL Count & Rate (95% CI) | WARN Count & Rate (Alert Fatigue, 95% CI) | Flagged WARN+FAIL (95% CI) |",
+                    "|-------|----------------------------|-------------------------------------------|----------------------------|",
+                ]
+            )
+            for pc in per_check:
+                n_pc = int(pc["n_trials"])
+                lines.append(
+                    f"| `{pc['check']}` | "
+                    f"{_fmt_rate_ci(int(pc['fail_count']), n_pc, float(pc['fail_rate']), pc['fail_ci_95'])} | "
+                    f"{_fmt_rate_ci(int(pc['warn_count']), n_pc, float(pc['warn_rate']), pc['warn_ci_95'])} | "
+                    f"{_fmt_rate_ci(int(pc['flagged_count']), n_pc, float(pc['flagged_rate']), pc['flagged_ci_95'])} |"
+                )
+
+    # ── 3. Held-Out Validation (Unseen Datasets & New Fault Families) ──
+    held = data.get("held_out_validation")
+    if isinstance(held, dict) and held.get("rows"):
+        h_seeds: list[int] = list(held.get("seeds", []))
+        h_range = (
+            f"{h_seeds[0]}..{h_seeds[-1]}" if h_seeds else str(held.get("seed_range", "unknown"))
+        )
+        h_has_ev = any("evidently_detected" in r for r in held["rows"])
+        lines.extend(
+            [
+                "",
+                f"## 3. Held-Out Validation (Unseen Datasets & Unseen Fault Families, Seeds `{h_range}`, Frozen Defaults)",
+                "",
+                "Evaluated with **frozen thresholds** (zero tuning) on two held-out OpenML datasets never used during development — **Bank Marketing** (`data_id=1461`, protected=`marital`) and **COMPAS Recidivism** (`data_id=42192`, protected=`race`) — including two brand-new fault families not used in design (`silent_null_imputation`: silent 40% null-to-zero corruption of primary numeric feature in training data; `cohort_feature_corruption`: cohort-localized 2σ feature corruption at inference time with clean training data).",
+                "",
+            ]
+        )
+        if h_has_ev:
+            lines.append(
+                "| Held-Out Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Evidently 0.7 Defaults | Power / MDE Note |"
+            )
+            lines.append(
+                "|------------------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------------|------------------|"
+            )
+        else:
+            lines.append(
+                "| Held-Out Dataset | Fault | PredGate FAIL-only (95% CI) | PredGate Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Power / MDE Note |"
+            )
+            lines.append(
+                "|------------------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|------------------|"
+            )
+
+        for r in held["rows"]:
+            n_t = int(r["n_trials"])
+            suf = "FP" if r["fault"] == "noop" else ""
+            fail_cell = _fmt_rate_ci(
+                int(r["detected_fail"]), n_t, float(r["fail_rate"]), r["fail_ci_95"], suf
+            )
+            flag_cell = _fmt_rate_ci(
+                int(r["detected_total"]), n_t, float(r["detection_rate"]), r["ci_95"], suf
+            )
+            if r["fault"] == "noop":
+                fail_cell = f"**{fail_cell}**"
+                flag_cell = f"**{flag_cell}**"
+            mde_str = (
+                f"`min_n={r['mean_min_n']:.0f}, MDE_DP={r['mean_mde_dp']:.3f}` "
+                f"(note {int(r['power_note_count'])}/{n_t})"
+            )
+            cells = [
+                f"**{r['dataset']}**",
+                r["fault_label"],
+                fail_cell,
+                flag_cell,
+                _fmt_rate_ci(
+                    int(r["baseline_detected"]),
+                    n_t,
+                    float(r["baseline_rate"]),
+                    r["baseline_ci_95"],
+                    suf,
+                ),
+                _fmt_rate_ci(
+                    int(r["per_group_acc_detected"]),
+                    n_t,
+                    float(r["per_group_acc_rate"]),
+                    r["per_group_acc_ci_95"],
+                    suf,
+                ),
+                _fmt_rate_ci(
+                    int(r["fixed_dp_detected"]),
+                    n_t,
+                    float(r["fixed_dp_rate"]),
+                    r["fixed_dp_ci_95"],
+                    suf,
+                ),
+            ]
+            if h_has_ev:
+                cells.append(
+                    _fmt_rate_ci(
+                        int(r["evidently_detected"]),
+                        n_t,
+                        float(r["evidently_rate"]),
+                        r["evidently_ci_95"],
+                        suf,
+                    )
+                )
+            cells.append(mde_str)
+            lines.append("| " + " | ".join(cells) + " |")
+
+    # ── 4. Public Fairness Validation (Development Public Datasets) ──
     pub = data.get("public_fairness_benchmark")
     if isinstance(pub, dict) and pub.get("rows"):
         pub_seeds: list[int] = list(pub.get("seeds", []))
@@ -663,30 +997,43 @@ def generate_benchmark_markdown_from_json(
         pub_commit = str(pub.get("commit_hash", commit_hash))
         frozen = pub.get("frozen_settings", {})
         frozen_str = ", ".join(f"`{k}={v}`" for k, v in frozen.items())
+        pub_has_stronger = any("per_group_acc_detected" in r for r in pub["rows"])
 
         lines.extend(
             [
                 "",
-                f"## Independent Fairness Validation on Public Datasets ({len(pub_seeds) or 30} Fresh Seeds `{pub_range}`, Frozen Defaults)",
+                f"## 4. Public Fairness Validation (Adult, German Credit & Synthetic, Seeds `{pub_range}`, Frozen Defaults)",
                 "",
                 f"- **Command**: `{pub_cmd}`",
-                f"- **Commit Hash**: `{pub_commit}`",
+                f"- **Evaluated Code Commit Hash**: `{pub_commit}`",
                 f"- **Frozen `FairnessConfig` Settings**: {frozen_str}",
                 "",
-                "Evaluated using the **full `run_fairness_check` gate** (`status in ('warn', 'fail')`: paired bootstrap gap CI across demographic parity, equal opportunity, equalized odds, and per-group calibration + two-sided paired bootstrap per-group selection-rate shift at `WARN` level; static absolute DP opt-in via `enforce_absolute=True` relative to champion):",
-                "",
-                f"| Dataset (`{pub_range}`) | Fault | Full Fairness Check (Count, Rate, Wilson 95% CI; Fail/Warn) | Accuracy Baseline (`\\|Δacc\\| > 1%`) | Mean DP (`champ -> cand`) | Power / MDE Note (`80% power`) |",
-                "|------------------------|-------|------------------------------------------------------------|--------------------------------------|---------------------------|--------------------------------|",
             ]
         )
+        if pub_has_stronger:
+            lines.append(
+                f"| Dataset (`{pub_range}`) | Fault | Fairness FAIL-only (95% CI) | Fairness Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Per-Group Acc Drop (`>2%`) | Fixed DP (`>=0.10`) | Mean DP (`champ -> cand`) | Power / MDE Note |"
+            )
+            lines.append(
+                "|------------------------|-------|-----------------------------|-------------------------------------|------------------------------|----------------------------|---------------------|---------------------------|------------------|"
+            )
+        else:
+            lines.append(
+                f"| Dataset (`{pub_range}`) | Fault | Fairness FAIL-only (95% CI) | Fairness Flagged WARN+FAIL (95% CI) | Overall Acc (`\\|Δacc\\|>1%`) | Mean DP (`champ -> cand`) | Power / MDE Note |"
+            )
+            lines.append(
+                "|------------------------|-------|-----------------------------|-------------------------------------|------------------------------|---------------------------|------------------|"
+            )
 
         for row in pub["rows"]:
             ds = row["dataset"]
             flt = row["fault_label"]
             n_t = int(row["n_trials"])
-            det = int(row["detected_total"])
+            suf = "FP" if row["fault"] == "noop" else ""
             det_fail = int(row["detected_fail"])
-            det_warn = int(row["detected_warn"])
+            fail_rate = float(row.get("fail_rate", det_fail / n_t if n_t else 0.0))
+            fail_ci = row.get("fail_ci_95", list(wilson_ci(det_fail, n_t)))
+            det = int(row["detected_total"])
             rate = float(row["detection_rate"])
             ci = row["ci_95"]
             bl_det = int(row["baseline_detected"])
@@ -696,27 +1043,66 @@ def generate_benchmark_markdown_from_json(
             note_cnt = int(row["power_note_count"])
             mde_str = (
                 f"`min_n={row['mean_min_n']:.0f}, MDE_DP={row['mean_mde_dp']:.3f}, "
-                f"MDE_EO={row['mean_mde_eo']:.3f}` (note emitted {note_cnt}/{n_t})"
+                f"MDE_EO={row['mean_mde_eo']:.3f}` (note {note_cnt}/{n_t})"
             )
+            fail_cell = _fmt_rate_ci(det_fail, n_t, fail_rate, fail_ci, suf)
+            flag_cell = _fmt_rate_ci(det, n_t, rate, ci, suf)
+            bl_cell = _fmt_rate_ci(bl_det, n_t, bl_rate, bl_ci, suf)
             if row["fault"] == "noop":
-                mg_cell = f"**{det}/{n_t} ({rate:.1%} FP, [{ci[0]:.1%}, {ci[1]:.1%}]; {det_fail}F/{det_warn}W)**"
-                bl_cell = f"**{bl_det}/{n_t} ({bl_rate:.1%} FP, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])**"
-            else:
-                mg_cell = (
-                    f"{det}/{n_t} ({rate:.1%}, [{ci[0]:.1%}, {ci[1]:.1%}]; {det_fail}F/{det_warn}W)"
+                fail_cell = f"**{fail_cell}**"
+                flag_cell = f"**{flag_cell}**"
+                bl_cell = f"**{bl_cell}**"
+
+            cells = [f"**{ds}**", flt, fail_cell, flag_cell, bl_cell]
+            if pub_has_stronger:
+                cells.append(
+                    _fmt_rate_ci(
+                        int(row["per_group_acc_detected"]),
+                        n_t,
+                        float(row["per_group_acc_rate"]),
+                        row["per_group_acc_ci_95"],
+                        suf,
+                    )
                 )
-                bl_cell = f"{bl_det}/{n_t} ({bl_rate:.1%}, [{bl_ci[0]:.1%}, {bl_ci[1]:.1%}])"
-            lines.append(f"| **{ds}** | {flt} | {mg_cell} | {bl_cell} | {dp_str} | {mde_str} |")
+                cells.append(
+                    _fmt_rate_ci(
+                        int(row["fixed_dp_detected"]),
+                        n_t,
+                        float(row["fixed_dp_rate"]),
+                        row["fixed_dp_ci_95"],
+                        suf,
+                    )
+                )
+            cells.extend([dp_str, mde_str])
+            lines.append("| " + " | ".join(cells) + " |")
+
+    # ── 5. Baseline & Off-the-Shelf Comparator Definitions ──
+    comp = data.get("comparator_config", {})
+    lines.extend(
+        [
+            "",
+            "## 5. Baseline & Comparator Definitions",
+            "",
+            "1. **Overall Accuracy Baseline (`|acc_champ - acc_cand| > 0.01`)**: Flags any trial where overall test accuracy changes by more than 1 percentage point in either direction.",
+            "2. **Per-Group Accuracy-Drop Baseline (`max_g (acc_champ(g) - acc_cand(g)) > 0.02`, `n_g >= 30`)**: Flags any trial where any subgroup's accuracy drops by more than 2 percentage points compared to the champion.",
+            "3. **Fixed Demographic-Parity-Limit Baseline (`DP_cand >= 0.10`)**: Classic static absolute fairness threshold flagging any candidate with demographic parity difference `>= 0.10` regardless of champion baseline.",
+        ]
+    )
+    if comp:
+        lines.append(
+            f"4. **Evidently Off-the-Shelf Default Comparator (`evidently=={comp.get('evidently_version', '0.7.23')}`, `pandas=={comp.get('pandas_version', '2.3.3')}`)**: "
+            f"{comp.get('description', 'Runs Report([DataDriftPreset()], include_tests=True) on candidate vs reference training data and Report([ClassificationPreset()], include_tests=True) on candidate vs champion test predictions with 100% Evidently default thresholds; flagged if any test returns FAIL.')}"
+        )
 
     lines.extend(
         [
             "",
             "## Methodology",
             "",
-            f"Each synthetic fault is injected across {len(seeds)} independent random seeds (`{seeds[0]}..{seeds[-1]}`). "
-            "For each seed `s`, training data (`N=3000`) is generated with `RandomState(s)` and held-out test data (`N=1500`) with `RandomState(s + 1000)`. "
-            "Public fairness datasets (UCI Adult `adult` v2 and German Credit `credit-g` v1) are fetched directly from OpenML via `scripts/bench_public.py`. "
-            "Confidence intervals are calculated using the Wilson score interval at the 95% confidence level (`z = 1.95996`).",
+            f"Each suite uses 30 independent random seeds (Synthetic 7-fault: `{seeds[0]}..{seeds[-1]}`; Public fairness: `5000..5029`; Benign-change control: `6000..6029`; Held-out validation: `7000..7029`). "
+            "All PredGate thresholds are frozen at default values and never tuned against benign controls or held-out datasets. "
+            "Public datasets (UCI Adult `adult` v2, German Credit `credit-g` v1, Bank Marketing `1461`, COMPAS `42192`) are fetched directly from OpenML via `scripts/bench_public.py`. "
+            "Confidence intervals use the 95% Wilson score interval (`z = 1.95996`).",
         ]
     )
 

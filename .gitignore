@@ -47,6 +47,7 @@ predgate.db
 modelgate.db
 predgate_output/
 modelgate_output/
+release_artifacts/
 
 # Frontend / Node
 node_modules/

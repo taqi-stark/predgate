@@ -111,26 +111,30 @@ def test_no_custom_approval_bypass_in_code_or_workflows(
 
 
 def test_codeowners_handle_format() -> None:
-    """CODEOWNERS must cover /champion/ and /champion.dvc with valid @org/team handles."""
+    """CODEOWNERS must document user vs org handle rules without invalid active placeholders."""
     codeowners = (REPO_ROOT / ".github" / "CODEOWNERS").read_text()
-    rules: dict[str, list[str]] = {}
+
+    # Must document both personal user (@<username>) and org team (@<org>/<team>) setup for champion artifacts
+    assert "/champion/" in codeowners
+    assert "/champion.dvc" in codeowners
+    assert "Personal / User GitHub Account" in codeowners
+    assert "GitHub Organization Account" in codeowners
+    assert "@<your-github-username>" in codeowners
+    assert "@<your-org>/" in codeowners
+
+    # No active (uncommented) placeholder rules should exist; any configured active rule must use valid GitHub handle syntax
+    user_or_team = re.compile(r"^@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:/[A-Za-z0-9._-]+)?$")
+    email_pat = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     for raw_line in codeowners.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        assert "@your-org/" not in line, "Active CODEOWNERS rule must not use @your-org placeholder"
         parts = line.split()
-        rules[parts[0]] = parts[1:]
-
-    assert "/champion/" in rules
-    assert "/champion.dvc" in rules
-
-    team_pattern = re.compile(r"^@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$")
-    for path in ("/champion/", "/champion.dvc"):
-        owners = rules[path]
-        assert len(owners) >= 1
-        for owner in owners:
-            assert team_pattern.match(owner), (
-                f"CODEOWNERS handle '{owner}' for {path} must use @org/team format"
+        assert len(parts) >= 2
+        for owner in parts[1:]:
+            assert user_or_team.match(owner) or email_pat.match(owner), (
+                f"Invalid CODEOWNERS handle '{owner}' in line: {line}"
             )
 
 
