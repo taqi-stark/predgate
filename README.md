@@ -141,12 +141,15 @@ PredGate/
 │   ├── architecture.md            # System design, data flow, and check mechanics
 │   ├── usage.md                   # CLI commands, config schema, and CI/CD guide
 │   ├── decisions.md               # Architecture Decision Records (ADRs)
-│   ├── benchmark.md               # Fault-injection benchmark methodology & findings
-│   └── benchmark_results.json     # Machine-readable 30-seed benchmark dataset
+│   ├── benchmark.md               # Fault-injection, benign-control & held-out benchmark report
+│   ├── benchmark_results.json     # Aggregate-only machine-readable benchmark summaries
+│   └── RELEASE_NOTES_v0.1.0.md    # v0.1.0 release notes and honest limitations table
+├── MIGRATION.md                   # ModelGate -> PredGate migration guide
 ├── scripts/
 │   ├── seed.py                    # Docker Compose seed script for initial demo data
 │   ├── run_bench_fast.py          # Synthetic 30-seed benchmark runner
-│   └── bench_public.py            # End-to-end OpenML (Adult, German Credit) + synthetic benchmark runner
+│   ├── bench_public.py            # End-to-end OpenML (Adult, German, Bank, COMPAS) + synthetic benchmark runner
+│   └── evidently_comparator.py    # Off-the-shelf Evidently 0.7 default-preset comparator worker
 ├── src/predgate/                 # Core Python package
 │   ├── cli.py                     # Typer CLI (predgate run / bench / reproduce / init)
 │   ├── config.py                  # Pydantic models for predgate.yaml
