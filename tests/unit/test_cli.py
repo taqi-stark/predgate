@@ -316,3 +316,76 @@ def test_cli_bench_serve_baseline_and_users(
     res_list = runner.invoke(app, ["users", "list"])
     assert res_list.exit_code == 0
     assert "cli_eng" in res_list.stdout
+
+
+def test_cli_run_preset_and_model_family_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify --preset CLI override and 'Model family changed' note across CLI & report outputs."""
+    import json
+
+    import pandas as pd
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+
+    from predgate.loader import LineageInfo, LoadResult
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "predgate.yaml").write_text(
+        "project: fam-test\n"
+        "seed: 42\n"
+        "model:\n"
+        "  entrypoint: demo/train.py:build_model\n"
+        "data:\n"
+        "  train: train.csv\n"
+        "  test: test.csv\n"
+        "  target: default\n"
+        "checks:\n"
+        "  data_contract:\n"
+        "    enabled: false\n"
+        "  behavioral:\n"
+        "    enabled: false\n"
+        "  budgets:\n"
+        "    enabled: false\n"
+        "  fairness:\n"
+        "    enabled: false\n"
+        "  slices:\n"
+        "    enabled: false\n"
+    )
+    df = pd.DataFrame({"x": [0.1, 0.2, 0.8, 0.9] * 10, "default": [0, 0, 1, 1] * 10})
+    champ = GradientBoostingClassifier(n_estimators=5, random_state=42).fit(
+        df[["x"]], df["default"]
+    )
+    cand = RandomForestClassifier(n_estimators=5, random_state=42).fit(df[["x"]], df["default"])
+
+    monkeypatch.setattr(
+        "predgate.loader.load_candidate_and_champion",
+        lambda cfg: LoadResult(
+            candidate_model=cand,
+            champion_model=champ,
+            train_df=df,
+            test_df=df,
+            reference_df=df,
+            target_column="default",
+            train_time_s=0.05,
+            lineage=LineageInfo(git_sha="abc1234", seed=42),
+            is_first_run=False,
+        ),
+    )
+    monkeypatch.setattr("predgate.registry.log_run_to_mlflow", lambda *a, **kw: "run-fam-1")
+    monkeypatch.setattr("httpx.post", lambda *a, **kw: MagicMock(status_code=200))
+
+    out_dir = tmp_path / "fam_out"
+    res = runner.invoke(
+        app,
+        ["run", "--config", "predgate.yaml", "--preset", "quiet", "--output", str(out_dir)],
+    )
+    assert res.exit_code == 0
+    assert "Preset: quiet" in res.stdout
+    assert "Model family changed" in res.stdout
+
+    verdict_json = json.loads((out_dir / "verdict.json").read_text())
+    assert verdict_json["model_family_change"]["changed"] is True
+    assert verdict_json["model_family_change"]["champion_family"] == "GradientBoostingClassifier"
+    assert verdict_json["model_family_change"]["candidate_family"] == "RandomForestClassifier"
+    assert "Model family changed" in (out_dir / "pr_comment.md").read_text()
+    assert "Model family changed" in (out_dir / "report.html").read_text()

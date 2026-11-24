@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "predgate"
-version = "0.1.0"
+version = "0.1.0a0"
 description = "CI/CD quality gate for machine learning models"
 readme = "README.md"
 requires-python = ">=3.10"

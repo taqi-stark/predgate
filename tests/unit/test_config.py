@@ -217,3 +217,87 @@ class TestPredGateConfig:
         assert config.project == config2.project
         assert config.seed == config2.seed
         assert config.model.entrypoint == config2.model.entrypoint
+
+    def test_presets_strict_balanced_quiet_and_overrides(self, tmp_path: Path) -> None:
+        """Verify strict, balanced, quiet presets, default-threshold preservation, and explicit overrides."""
+        from pydantic import ValidationError
+
+        from predgate.config import get_preset_checks_config
+
+        # Balanced preset must match default thresholds exactly (no silent default change)
+        default_cfg = PredGateConfig(
+            project="test",
+            model={"entrypoint": "train.py:build"},
+            data={"train": "train.csv", "test": "test.csv"},
+        )
+        balanced_cfg = PredGateConfig(
+            project="test",
+            preset="balanced",
+            model={"entrypoint": "train.py:build"},
+            data={"train": "train.csv", "test": "test.csv"},
+        )
+        assert default_cfg.checks.model_dump() == balanced_cfg.checks.model_dump()
+        assert default_cfg.checks.slices.on_inconclusive == "warn"
+        assert default_cfg.checks.slices.max_drop == 0.03
+        assert default_cfg.checks.drift.fail_at == 0.25
+        assert default_cfg.checks.fairness.fail_gap_increase == 0.05
+        assert default_cfg.checks.budgets.max_latency_ratio == 1.5
+
+        # Strict tightens thresholds and warns on new features + inconclusive slices
+        strict_checks = get_preset_checks_config("strict")
+        assert strict_checks.slices.max_drop == 0.02
+        assert strict_checks.slices.on_inconclusive == "warn"
+        assert strict_checks.drift.on_new_feature == "warn"
+        assert strict_checks.drift.fail_at == 0.20
+        assert strict_checks.fairness.fail_gap_increase == 0.03
+        assert strict_checks.budgets.max_latency_ratio == 1.25
+
+        # Quiet widens thresholds and sets inconclusive slices to info
+        quiet_checks = get_preset_checks_config("quiet")
+        assert quiet_checks.slices.max_drop == 0.05
+        assert quiet_checks.slices.on_inconclusive == "info"
+        assert quiet_checks.drift.on_new_feature == "info"
+        assert quiet_checks.fairness.selection_rate_shift_warn == 0.05
+        assert quiet_checks.budgets.max_latency_ratio == 2.0
+
+        # Explicit YAML settings override preset values
+        yaml_file = tmp_path / "preset.yaml"
+        yaml_file.write_text(
+            textwrap.dedent("""\
+            project: override-test
+            preset: strict
+            model:
+              entrypoint: train.py:build
+            data:
+              train: train.csv
+              test: test.csv
+            checks:
+              slices:
+                max_drop: 0.04
+                on_inconclusive: info
+            """)
+        )
+        loaded = load_config(yaml_file)
+        assert loaded.preset == "strict"
+        assert loaded.checks.slices.max_drop == 0.04
+        assert loaded.checks.slices.on_inconclusive == "info"
+        # Non-overridden strict settings remain active
+        assert loaded.checks.drift.on_new_feature == "warn"
+        assert loaded.checks.budgets.max_latency_ratio == 1.25
+
+        # CLI preset_override works on minimal YAML
+        min_file = tmp_path / "min.yaml"
+        min_file.write_text(MINIMAL_YAML)
+        cli_quiet = load_config(min_file, preset_override="quiet")
+        assert cli_quiet.preset == "quiet"
+        assert cli_quiet.checks.slices.on_inconclusive == "info"
+        assert cli_quiet.checks.budgets.max_latency_ratio == 2.0
+
+        # Invalid preset rejected
+        with pytest.raises(ValidationError):
+            PredGateConfig(
+                project="test",
+                preset="ultra",  # type: ignore[arg-type]
+                model={"entrypoint": "train.py:build"},
+                data={"train": "train.csv", "test": "test.csv"},
+            )

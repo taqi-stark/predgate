@@ -61,6 +61,20 @@ def build_pr_comment(
     lines.append(" | ".join(header_parts))
     lines.append("")
 
+    # Prominent model-family change banner
+    mfc = verdict.model_family_change
+    if isinstance(mfc, dict) and mfc.get("changed"):
+        champ_fam = mfc.get("champion_family", "unknown")
+        cand_fam = mfc.get("candidate_family", "unknown")
+        lines.extend(
+            [
+                "> [!NOTE]",
+                f"> **Model family changed:** Champion `{champ_fam}` → Candidate `{cand_fam}`. "
+                "Algorithm swaps can shift single-row inference latency and subgroup selection rates even without data or label bugs.",
+                "",
+            ]
+        )
+
     # Check results table
     lines.append("| Check | Status | Summary |")
     lines.append("|---|---|---|")
@@ -72,6 +86,42 @@ def build_pr_comment(
         )
     lines.append("")
 
+    # Prominent inconclusive slices callout & table
+    inconclusive_entries: list[dict[str, Any]] = []
+    inconclusive_notes: list[str] = []
+    power_notes: list[str] = []
+    for cr in verdict.check_results:
+        for entry in cr.details.get("inconclusive_entries", []):
+            inconclusive_entries.append(entry)
+        for note in cr.details.get("inconclusive_notes", []):
+            inconclusive_notes.append(f"[{cr.name}] {note}")
+        for note in cr.details.get("power_notes", []):
+            power_notes.append(f"[{cr.name}] {note}")
+
+    if inconclusive_entries or inconclusive_notes:
+        lines.append("### ⚠️ Inconclusive Slices (Wide Confidence Intervals)")
+        lines.append("")
+        lines.append("> [!WARNING]")
+        lines.append(
+            "> One or more evaluation slices have confidence intervals wider than `slices.max_ci_width` — "
+            "a real regression may go undetected. See `docs/power.md` for minimum slice sizes, or set "
+            "`slices.on_inconclusive: info` if you do not want inconclusive slices to trigger `WARN`."
+        )
+        lines.append("")
+        if inconclusive_entries:
+            lines.append("| Slice | N | Point Drop | 95% CI | CI Width | Limit |")
+            lines.append("|---|---|---|---|---|---|")
+            for e in inconclusive_entries[:10]:
+                lines.append(
+                    f"| `{e['slice']}` | {e['n_rows']} | {e['diff']:+.3f} | "
+                    f"[{e['ci_lower']:+.3f}, {e['ci_upper']:+.3f}] | "
+                    f"**{e['ci_width']:.3f}** | `{e['max_ci_width']:.2f}` |"
+                )
+        else:
+            for note in inconclusive_notes:
+                lines.append(f"- ⚠️ {note}")
+        lines.append("")
+
     # Top reasons
     if verdict.reasons:
         lines.append("**Top reasons**")
@@ -79,23 +129,11 @@ def build_pr_comment(
             lines.append(f"{i}. {reason.message}")
         lines.append("")
 
-    # Statistical power / minimum detectable gap & inconclusive interval notes
-    power_notes: list[str] = []
-    inconclusive_notes: list[str] = []
-    for cr in verdict.check_results:
-        for note in cr.details.get("power_notes", []):
-            power_notes.append(f"[{cr.name}] {note}")
-        for note in cr.details.get("inconclusive_notes", []):
-            inconclusive_notes.append(f"[{cr.name}] {note}")
+    # Statistical power / minimum detectable gap notes
     if power_notes:
         lines.append("**Statistical power notes**")
         for note in power_notes:
             lines.append(f"- ⚠️ {note}")
-        lines.append("")
-    if inconclusive_notes:
-        lines.append("**Inconclusive intervals**")
-        for note in inconclusive_notes:
-            lines.append(f"- ℹ️ {note}")
         lines.append("")
 
     # Footer
@@ -198,22 +236,59 @@ def build_html_report(
             )
         reasons_html += "</ol>"
 
-    power_html = ""
+    family_html = ""
+    mfc = verdict.model_family_change
+    if isinstance(mfc, dict) and mfc.get("changed"):
+        champ_fam = mfc.get("champion_family", "unknown")
+        cand_fam = mfc.get("candidate_family", "unknown")
+        family_html = (
+            '<div class="callout callout-info">'
+            f"<strong>Model family changed:</strong> Champion <code>{champ_fam}</code> &rarr; "
+            f"Candidate <code>{cand_fam}</code>. Algorithm swaps can shift single-row inference "
+            "latency and subgroup selection rates even without data or label bugs."
+            "</div>"
+        )
+
+    inconclusive_html = ""
+    html_inconclusive_entries: list[dict[str, Any]] = []
     html_power_notes: list[str] = []
     html_inconclusive_notes: list[str] = []
     for cr in verdict.check_results:
+        for entry in cr.details.get("inconclusive_entries", []):
+            html_inconclusive_entries.append(entry)
         for note in cr.details.get("power_notes", []):
             html_power_notes.append(f"[{cr.name}] {note}")
         for note in cr.details.get("inconclusive_notes", []):
             html_inconclusive_notes.append(f"[{cr.name}] {note}")
+
+    if html_inconclusive_entries or html_inconclusive_notes:
+        if html_inconclusive_entries:
+            inc_rows = ""
+            for e in html_inconclusive_entries[:15]:
+                inc_rows += (
+                    f"<tr><td><code>{e['slice']}</code></td><td>{e['n_rows']}</td>"
+                    f"<td>{e['diff']:+.3f}</td>"
+                    f"<td>[{e['ci_lower']:+.3f}, {e['ci_upper']:+.3f}]</td>"
+                    f"<td><strong>{e['ci_width']:.3f}</strong> (&gt; {e['max_ci_width']:.2f})</td></tr>"
+                )
+            inc_body = (
+                "<table><tr><th>Slice</th><th>N</th><th>Point Drop</th>"
+                f"<th>95% CI</th><th>CI Width</th></tr>{inc_rows}</table>"
+            )
+        else:
+            inc_body = "<ul>" + "".join(f"<li>{n}</li>" for n in html_inconclusive_notes) + "</ul>"
+        inconclusive_html = (
+            '<div class="callout callout-warn">'
+            "<h3>&#9888;&#65039; Inconclusive Slices (Wide Confidence Intervals)</h3>"
+            "<p>One or more slices have confidence intervals wider than <code>slices.max_ci_width</code>; "
+            "a real drop may not be detected with sufficient power (see <code>docs/power.md</code>).</p>"
+            f"{inc_body}</div>"
+        )
+
+    power_html = ""
     if html_power_notes:
         power_html = "<h3>Statistical Power Notes</h3><ul>"
         for note in html_power_notes:
-            power_html += f"<li>{note}</li>"
-        power_html += "</ul>"
-    if html_inconclusive_notes:
-        power_html += "<h3>Inconclusive Intervals</h3><ul>"
-        for note in html_inconclusive_notes:
             power_html += f"<li>{note}</li>"
         power_html += "</ul>"
 
@@ -250,6 +325,10 @@ def build_html_report(
                 font-family: 'JetBrains Mono', monospace; }}
         .badge {{ display: inline-block; padding: 4px 12px; border-radius: 4px;
                   font-weight: bold; color: white; background: {color}; }}
+        .callout {{ padding: 14px 18px; border-radius: 6px; margin: 16px 0; }}
+        .callout-warn {{ background: rgba(245, 158, 11, 0.12); border-left: 4px solid #f59e0b; }}
+        .callout-warn h3 {{ margin-top: 0; color: #fbbf24; }}
+        .callout-info {{ background: rgba(59, 130, 246, 0.12); border-left: 4px solid #3b82f6; }}
     </style>
 </head>
 <body>
@@ -258,6 +337,8 @@ def build_html_report(
     <p>Verdict: <span class="badge">{verdict.status.upper()}</span></p>
     <p>{verdict.summary}</p>
 
+    {family_html}
+    {inconclusive_html}
     {reasons_html}
     {power_html}
 

@@ -63,6 +63,9 @@ def init(
 @app.command()
 def run(
     config: str = typer.Option("predgate.yaml", "--config", "-c", help="Config file path"),
+    preset: str | None = typer.Option(
+        None, "--preset", help="Optional threshold preset override: strict, balanced, or quiet"
+    ),
     branch: str = typer.Option("", "--branch", "-b", help="Branch name"),
     pr_number: int | None = typer.Option(None, "--pr", help="PR number"),
     output: str = typer.Option("", "--output", "-o", help="Output directory for reports"),
@@ -77,7 +80,7 @@ def run(
     from predgate.checks.leakage import run_leakage_check
     from predgate.checks.slices import run_slices_check
     from predgate.config import load_config
-    from predgate.loader import load_candidate_and_champion
+    from predgate.loader import detect_model_family_change, load_candidate_and_champion
     from predgate.registry import log_run_to_mlflow
     from predgate.report import build_html_report, build_json_payload, build_pr_comment
     from predgate.verdict import compute_verdict
@@ -86,7 +89,7 @@ def run(
 
     # Load config
     try:
-        cfg = load_config(config)
+        cfg = load_config(config, preset_override=preset)  # type: ignore[arg-type]
     except FileNotFoundError:
         console.print(f"[red]Config file not found:[/red] {config}")
         console.print("Run 'predgate init' to create one.")
@@ -95,7 +98,8 @@ def run(
         console.print(f"[red]Invalid config:[/red] {e}")
         raise typer.Exit(1)
 
-    console.print(f"Project: [bold]{cfg.project}[/bold]  Seed: {cfg.seed}")
+    preset_label = f"  Preset: {cfg.preset}" if cfg.preset else ""
+    console.print(f"Project: [bold]{cfg.project}[/bold]  Seed: {cfg.seed}{preset_label}")
 
     # Load models
     with console.status("Loading candidate and champion models..."):
@@ -109,6 +113,11 @@ def run(
         console.print(
             "[yellow]First run — no champion found. Comparison checks will be skipped.[/yellow]"
         )
+    family_change = detect_model_family_change(
+        load_result.champion_model, load_result.candidate_model
+    )
+    if family_change and family_change.get("changed"):
+        console.print(f"[cyan]Note:[/cyan] {family_change['note']}")
     console.print(f"Training time: {load_result.train_time_s:.2f}s\n")
 
     # Run checks
@@ -203,7 +212,7 @@ def run(
         _print_check_result(cr)
 
     # Compute verdict
-    verdict = compute_verdict(results, cfg.verdict)
+    verdict = compute_verdict(results, cfg.verdict, model_family_change=family_change)
 
     # Print verdict
     console.print()

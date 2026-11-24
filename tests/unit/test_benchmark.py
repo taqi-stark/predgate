@@ -266,4 +266,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     assert "Latency FAIL (95% CI)" in rendered
     assert "Full Fault Validation" in rendered
     assert "Evidently" in rendered
+    assert "All five benchmark datasets" in rendered
+    assert "## How to Reproduce" in rendered
+    assert "### Exact Evidently Comparator Configuration" in rendered
     assert "| **UCI Adult** |" not in rendered

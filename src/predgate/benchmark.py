@@ -709,6 +709,8 @@ def generate_benchmark_markdown_from_json(
         "",
         "Single source of truth for all PredGate benchmark evaluations, generated strictly from [`docs/benchmark_results.json`](benchmark_results.json) (aggregate summary; no hardcoded numbers).",
         "",
+        "> **Dataset-Use Disclosure**: **All five benchmark datasets** (**UCI Adult**, **German Credit**, **Synthetic Credit**, **Bank Marketing**, and **COMPAS**) **were used during development**. Bank Marketing and COMPAS were initially evaluated as held-out datasets at commit `8467d37`, then inspected to diagnose the `slices.py` CI-bound and `drift.py` quantile-PSI/point-mass defects, and re-evaluated on fresh seeds (`9000..9029`) with frozen thresholds and zero post-hoc tuning. None of the five datasets should be treated as an unseen held-out benchmark.",
+        "",
         "## Reproducibility Metadata",
         "",
         f"- **Command**: `{command_str}`",
@@ -1202,12 +1204,44 @@ def generate_benchmark_markdown_from_json(
     lines.extend(
         [
             "",
+            "### Exact Evidently Comparator Configuration",
+            "",
+            f"- **Package versions (isolated venv `/tmp/evidently-venv`)**: `evidently=={comp.get('evidently_version', '0.7.23')}`, `pandas=={comp.get('pandas_version', '2.3.3')}`, `numpy<2.3`, `scikit-learn>=1.5` (isolated because Evidently `0.7.x` imports `pandas.core.dtypes.common.infer_dtype_from_object`, which was removed in pandas `3.0`).",
+            "- **Worker script**: [`scripts/evidently_comparator.py`](../scripts/evidently_comparator.py) (`--worker` JSONL mode).",
+            "- **Training-data drift report**: `Report([DataDriftPreset()], include_tests=True)` run on `(current=candidate_train[common_cols], reference=champion_train[common_cols])` with **100% default Evidently thresholds** (skipped only when `candidate_train[common_cols].equals(champion_train[common_cols])`, which is mathematically guaranteed to pass).",
+            "- **Test-prediction classification report**: `Report([ClassificationPreset()], include_tests=True)` run on `(current=test_with_candidate_preds, reference=test_with_champion_preds)` with `DataDefinition(classification=[BinaryClassification(target=target_col, prediction_labels='__pred__')])` and **100% default Evidently thresholds**.",
+            "- **Decision rule**: `failed = True` if **any** auto-generated test in either report returns status `FAIL`.",
+            "",
+            "## How to Reproduce",
+            "",
+            "```bash",
+            "# 1. Create the PredGate environment",
+            "python -m venv .venv",
+            ".venv/bin/pip install -e '.[dev]'",
+            "",
+            "# 2. (Optional) Create the isolated Evidently 0.7.23 comparator venv",
+            "python -m venv /tmp/evidently-venv",
+            "/tmp/evidently-venv/bin/pip install 'evidently==0.7.23' 'pandas==2.3.3' 'numpy<2.3' 'scikit-learn>=1.5'",
+            "",
+            "# 3. Run the full 30-seed fresh evaluation across all 5 datasets, 9 benign changes, and all fault families",
+            "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\",
+            f"  .venv/bin/python {command_str.replace('python ', '')} --workers 4",
+            "",
+            "# 4. (Optional) Run the fresh-seed config-preset benign-change comparison (strict / balanced / quiet)",
+            "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \\",
+            "  .venv/bin/python scripts/bench_presets.py --n-seeds 30 --start-seed 11000 --workers 4",
+            "```",
+            "",
+            "Pass `--evidently-python ''` to run PredGate and the three built-in baselines without Evidently.",
+            "",
             "## Methodology",
             "",
             f"All suites use {len(seeds)} independent fresh random seeds (`{seeds[0]}..{seeds[-1]}`). "
-            "Seeds `6000..6029` from commit `8467d37` were used strictly as a development set to diagnose the `slices.py`, `drift.py`, and algo-swap defects; no thresholds were tuned after observing the fresh `9000..9029` evaluation results. "
-            "Public datasets (UCI Adult `adult` v2, German Credit `credit-g` v1, Bank Marketing `1461`, COMPAS `42192`) are fetched directly from OpenML via `scripts/bench_public.py`. "
-            "Confidence intervals use the 95% Wilson score interval (`z = 1.95996`).",
+            "**All five datasets** (UCI Adult `adult` v2, German Credit `credit-g` v1, Synthetic Credit, Bank Marketing `1461`, and COMPAS `42192`) **were used during development**: "
+            "seeds `6000..6029` and `7000..7029` from commit `8467d37` were inspected to diagnose the `slices.py`, `drift.py`, and algo-swap defects, after which all thresholds were frozen and re-evaluated on fresh seeds `9000..9029` with zero post-hoc tuning. "
+            "Public datasets are fetched directly from OpenML via `scripts/bench_public.py`. "
+            "Confidence intervals use the 95% Wilson score interval (`z = 1.95996`). "
+            "See [`docs/power.md`](power.md) for minimum sample-size calculations at 80% power.",
         ]
     )
 

@@ -44,10 +44,11 @@ class Verdict:
     reasons: list[Reason]
     check_results: list[CheckResult]
     summary: str
+    model_family_change: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the verdict to a dictionary."""
-        return {
+        out: dict[str, Any] = {
             "status": self.status,
             "summary": self.summary,
             "reasons": [
@@ -70,6 +71,9 @@ class Verdict:
                 for cr in self.check_results
             ],
         }
+        if self.model_family_change is not None:
+            out["model_family_change"] = self.model_family_change
+        return out
 
 
 # Severity ordering for sorting reasons (most severe first)
@@ -79,6 +83,7 @@ _SEVERITY_ORDER: dict[str, int] = {"fail": 0, "warn": 1}
 def compute_verdict(
     results: list[CheckResult],
     config: VerdictConfig | None = None,
+    model_family_change: dict[str, Any] | None = None,
 ) -> Verdict:
     """Merge all check results into a final verdict.
 
@@ -159,4 +164,5 @@ def compute_verdict(
         reasons=reasons,
         check_results=results,
         summary=summary,
+        model_family_change=model_family_change,
     )

@@ -72,6 +72,71 @@ class LoadResult:
     is_first_run: bool = False
 
 
+def detect_model_family(model: Any) -> dict[str, str]:
+    """Identify the underlying estimator algorithm / model family of a model or pipeline.
+
+    Unwraps scikit-learn ``Pipeline`` steps and common wrapper attributes
+    (``base_model``, ``estimator``, ``classifier``, ``model``).
+    """
+    est = model
+    seen: set[int] = set()
+    while est is not None and id(est) not in seen:
+        seen.add(id(est))
+        steps = getattr(est, "steps", None)
+        if (
+            isinstance(steps, list)
+            and steps
+            and isinstance(steps[-1], tuple)
+            and len(steps[-1]) == 2
+        ):
+            est = steps[-1][1]
+            continue
+        unwrapped = False
+        for attr in ("base_model", "estimator", "classifier", "model"):
+            inner = getattr(est, attr, None)
+            if inner is not None and inner is not est and hasattr(inner, "predict"):
+                est = inner
+                unwrapped = True
+                break
+        if not unwrapped:
+            break
+
+    cls = type(est)
+    top_pkg = cls.__module__.split(".")[0] if cls.__module__ else ""
+    qualified = f"{top_pkg}.{cls.__name__}" if top_pkg else cls.__name__
+    return {
+        "name": cls.__name__,
+        "module": cls.__module__,
+        "qualified": qualified,
+    }
+
+
+def detect_model_family_change(
+    champion_model: Any | None,
+    candidate_model: Any | None,
+) -> dict[str, Any] | None:
+    """Compare champion and candidate model families and return change metadata."""
+    if champion_model is None or candidate_model is None:
+        return None
+    champ = detect_model_family(champion_model)
+    cand = detect_model_family(candidate_model)
+    changed = champ["qualified"] != cand["qualified"]
+    note = (
+        f"Model family changed: Champion ({champ['name']}) -> Candidate ({cand['name']}). "
+        "Algorithm swaps can shift single-row latency and subgroup selection rates even without data or label bugs."
+        if changed
+        else ""
+    )
+    return {
+        "changed": changed,
+        "champion_family": champ["name"],
+        "candidate_family": cand["name"],
+        "champion_qualified": champ["qualified"],
+        "candidate_qualified": cand["qualified"],
+        "note": note,
+    }
+
+
 def compute_file_hash(path: str | Path) -> str:
     """Compute SHA-256 hash of a file.
 

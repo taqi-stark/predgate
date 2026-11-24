@@ -351,16 +351,45 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
         def predict(self, X: pd.DataFrame) -> np.ndarray:
             return self._preds[X["idx"].values]
 
-    cfg = SliceConfig(
+    cfg_warn = SliceConfig(
         enabled=True,
         metric="accuracy",
         by=["region"],
         min_slice_size=20,
         max_drop=0.03,
         max_ci_width=0.10,
+        on_inconclusive="warn",
         confidence=0.95,
         n_bootstrap=500,
     )
+    assert SliceConfig().on_inconclusive == "warn"  # default must be warn
+
+    res_near_zero_warn = run_slices_check(
+        df_small,
+        "default",
+        FixedPredModel(champ_preds_zero),
+        FixedPredModel(cand_preds_zero),
+        cfg_warn,
+        seed=42,
+    )
+    assert res_near_zero_warn.status == "warn"
+    assert "Inconclusive slices" in res_near_zero_warn.summary
+    sr0 = res_near_zero_warn.details["slices"][0]
+    assert abs(sr0["diff"]) < 1e-6
+    assert sr0["ci_upper"] > 0.03  # Old buggy gate would have FAILed here!
+    assert sr0["inconclusive"] is True
+    assert len(res_near_zero_warn.details["inconclusive_entries"]) == 1
+
+    verdict = compute_verdict([res_near_zero_warn])
+    pr_md = build_pr_comment(verdict)
+    html_doc = build_html_report(verdict)
+    assert "Inconclusive Slices" in pr_md
+    assert "region=North" in pr_md
+    assert "Inconclusive Slices" in html_doc
+    assert "callout-warn" in html_doc
+
+    # With on_inconclusive="info", near-zero wide CI passes while still prominently surfacing inconclusive slices
+    cfg = cfg_warn.model_copy(update={"on_inconclusive": "info"})
     res_near_zero = run_slices_check(
         df_small,
         "default",
@@ -370,18 +399,10 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
         seed=42,
     )
     assert res_near_zero.status == "pass"
-    sr0 = res_near_zero.details["slices"][0]
-    assert abs(sr0["diff"]) < 1e-6
-    assert sr0["ci_upper"] > 0.03  # Old buggy gate would have FAILed here!
-    assert sr0["inconclusive"] is True
     assert "inconclusive" in res_near_zero.summary
-
-    verdict = compute_verdict([res_near_zero])
-    pr_md = build_pr_comment(verdict)
-    html_doc = build_html_report(verdict)
-    assert "Inconclusive intervals" in pr_md
-    assert "inconclusive" in pr_md.lower()
-    assert "Inconclusive Intervals" in html_doc
+    verdict_info = compute_verdict([res_near_zero])
+    assert "Inconclusive Slices" in build_pr_comment(verdict_info)
+    assert "Inconclusive Slices" in build_html_report(verdict_info)
 
     # 2. Point drop exceeds max_drop (0.05 > 0.03), but wide CI includes <= max_drop -> WARN (not FAIL)
     cand_preds_mod = y.copy()

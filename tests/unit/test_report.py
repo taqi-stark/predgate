@@ -67,3 +67,45 @@ def test_build_json_payload() -> None:
     assert payload["project"] == "test-proj"
     assert payload["branch"] == "main"
     assert payload["verdict"]["status"] == "pass"
+
+
+def test_model_family_changed_note_in_reports() -> None:
+    """PR comment, HTML report, and Verdict JSON must surface 'Model family changed' when algorithms differ."""
+    from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    from predgate.loader import detect_model_family_change
+
+    champ_pipe = Pipeline([("scale", StandardScaler()), ("clf", GradientBoostingClassifier())])
+    cand_rf_pipe = Pipeline([("scale", StandardScaler()), ("clf", RandomForestClassifier())])
+    cand_same_pipe = Pipeline([("clf", GradientBoostingClassifier())])
+
+    # Different algorithms -> changed=True and prominent report banners
+    mfc = detect_model_family_change(champ_pipe, cand_rf_pipe)
+    assert mfc is not None
+    assert mfc["changed"] is True
+    assert mfc["champion_family"] == "GradientBoostingClassifier"
+    assert mfc["candidate_family"] == "RandomForestClassifier"
+    assert "Model family changed" in mfc["note"]
+
+    results = [CheckResult(name="drift", status="pass", summary="Max PSI 0.01")]
+    verdict = compute_verdict(results, model_family_change=mfc)
+    assert verdict.to_dict()["model_family_change"]["changed"] is True
+
+    pr_md = build_pr_comment(verdict, candidate_sha="abc1234")
+    html = build_html_report(verdict, project="demo")
+    assert "Model family changed" in pr_md
+    assert "GradientBoostingClassifier" in pr_md
+    assert "RandomForestClassifier" in pr_md
+    assert "Model family changed" in html
+    assert "GradientBoostingClassifier" in html
+    assert "RandomForestClassifier" in html
+
+    # Same algorithm (even with different preprocessing) -> changed=False, no banner
+    mfc_same = detect_model_family_change(champ_pipe, cand_same_pipe)
+    assert mfc_same is not None
+    assert mfc_same["changed"] is False
+    verdict_same = compute_verdict(results, model_family_change=mfc_same)
+    assert "Model family changed" not in build_pr_comment(verdict_same)
+    assert "Model family changed" not in build_html_report(verdict_same)
