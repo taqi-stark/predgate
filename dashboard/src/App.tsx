@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import { api } from './api';
 import RunsPage from './pages/RunsPage';
 import RunDetailPage from './pages/RunDetailPage';
 import ModelsPage from './pages/ModelsPage';
@@ -10,10 +11,20 @@ import './index.css';
 
 function App() {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [championVersion, setChampionVersion] = useState<string>('');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    api.listModels()
+      .then(models => {
+        const champ = models.find(m => m.is_champion) || models[0];
+        if (champ) setChampionVersion(champ.version);
+      })
+      .catch(() => {});
+  }, []);
 
   // Keyboard shortcut: g r for Runs
   useEffect(() => {
@@ -58,7 +69,9 @@ function App() {
             <span className="topbar-project">
               Project: <strong>credit-risk-demo</strong>
             </span>
-            <span className="champion-badge">🏆 Champion: v14</span>
+            {championVersion && (
+              <span className="champion-badge">🏆 Champion: {championVersion}</span>
+            )}
           </div>
           <button
             className="theme-toggle"

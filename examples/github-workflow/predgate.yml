@@ -1,0 +1,94 @@
+# Recommended GitHub Actions workflow for a user repository running PredGate.
+# Copy this file to `.github/workflows/predgate.yml` in your repository.
+#
+# Security requirements:
+#   - Trigger with `on: pull_request` (NEVER `pull_request_target`) so fork PRs run
+#     with a read-only GITHUB_TOKEN and no repository secrets.
+#   - Pin `predgate-spec` to a released version (e.g. `predgate==0.1.0a0`).
+#   - Protect `/champion/` and `/champion.dvc` in `.github/CODEOWNERS` and require
+#     the `Run PredGate` status check in GitHub branch protection.
+
+name: PredGate Quality Gate
+
+on:
+  pull_request:
+    paths:
+      - 'model/**'
+      - 'src/**'
+      - 'data/**'
+      - 'champion/**'
+      - 'champion.dvc'
+      - 'predgate.yaml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  predgate:
+    name: Run PredGate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (full history for base-branch verification)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run PredGate Quality Gate
+        id: gate
+        uses: taqi-stark/predgate@v0.1.0-alpha
+        with:
+          config: 'predgate.yaml'
+          python-version: '3.12'
+          predgate-spec: 'predgate==0.1.0a0'
+          baseline-dir: 'champion'
+          setup-data: 'python train.py'
+          output-dir: 'predgate_output'
+          fail-on-verdict: 'false'
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: predgate-report
+          path: predgate_output/report.html
+
+      - name: Post PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const p = 'predgate_output/pr_comment.md';
+            if (!fs.existsSync(p)) return;
+            const body = `<!-- predgate-verdict -->\n${fs.readFileSync(p, 'utf8')}`;
+            try {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              });
+              const existing = comments.find(c => c.body.includes('<!-- predgate-verdict -->'));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body,
+                });
+              }
+            } catch (err) {
+              core.warning(`Skipped PR comment (expected on fork PRs): ${err.message}`);
+            }
+
+      - name: Fail job if verdict is FAIL
+        if: steps.gate.outputs.verdict == 'fail'
+        run: exit 1

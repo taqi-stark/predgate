@@ -1,0 +1,39 @@
+name: Benchmark Dispute / Methodology Issue
+description: Report a discrepancy, methodological concern, or reproduction failure in docs/benchmark.md
+title: "[Benchmark]: "
+labels: ["benchmark"]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Evaluated Commit Hash & Seed Range
+      placeholder: "e.g., 9544988, seeds 9000..9029"
+    validations:
+      required: true
+  - type: dropdown
+    id: suite
+    attributes:
+      label: Affected Benchmark Suite
+      options:
+        - Synthetic 7-Fault
+        - Benign-Change Control
+        - Config Presets Comparison
+        - All-5-Dataset Fault Validation
+        - Standalone Fairness
+        - Evidently Comparator Setup
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Discrepancy or methodological concern
+      description: Describe what you observed vs. what docs/benchmark.md reports, including exact commands run.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Command output / JSON excerpt
+      render: shell
+    validations:
+      required: false

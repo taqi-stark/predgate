@@ -1,0 +1,65 @@
+project: minimal-diabetes-example
+seed: 42
+preset: balanced
+
+model:
+  entrypoint: train.py:build_model
+  task: classification
+
+data:
+  train: data/train.csv
+  test: data/test.csv
+  reference: data/reference.csv
+  target: high_risk
+  schema: schema.py:schema
+
+champion:
+  mlflow_alias: champion
+  baseline_dir: champion
+
+mlflow:
+  tracking_uri: sqlite:///mlflow.db
+  artifact_location: ./mlruns
+
+checks:
+  data_contract:
+    enabled: true
+    on_violation: fail
+  drift:
+    enabled: true
+    method: psi
+  leakage:
+    enabled: true
+  label_shift:
+    enabled: true
+    by: [sex_group, age_group]
+    min_slice_size: 20
+  slices:
+    enabled: true
+    metric: f1
+    by: [sex_group, age_group]
+    min_slice_size: 20
+    on_inconclusive: warn
+    n_bootstrap: 300
+  behavioral:
+    enabled: true
+    invariance:
+      - feature: patient_id
+        perturb: random_id
+        max_flip_rate: 0.0
+    directional: []
+  budgets:
+    enabled: true
+    max_latency_ratio: 1.5
+    max_model_mb: 50
+    max_peak_mem_mb: 500
+  fairness:
+    enabled: true
+    protected: [sex_group]
+    metric: demographic_parity_diff
+    min_group_size: 50
+    min_group_positives: 20
+
+verdict:
+  fail_if_any_fail: true
+  warn_requires_approval: true

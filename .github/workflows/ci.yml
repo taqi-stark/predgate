@@ -65,6 +65,17 @@ jobs:
           name: coverage-report
           path: coverage.xml
 
+  benchmark-freshness:
+    name: Benchmark Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check docs/benchmark_results.json matches src/
+        run: bash scripts/check_benchmark_fresh.sh
+
   dashboard-build:
     name: Dashboard Build
     runs-on: ubuntu-latest

@@ -1,0 +1,171 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and test only without publishing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    name: Test, Check Freshness & Build Distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install package and build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" build twine
+
+      - name: Lint & type check
+        run: |
+          ruff check src/ tests/ scripts/
+          ruff format --check src/ tests/
+          mypy src/predgate --ignore-missing-imports
+
+      - name: Verify benchmark freshness
+        run: bash scripts/check_benchmark_fresh.sh
+
+      - name: Run full unit test suite (coverage >= 85%)
+        run: |
+          pytest tests/unit/ -v \
+            -o addopts="" \
+            --cov=predgate \
+            --cov-report=term-missing \
+            --cov-fail-under=85
+
+      - name: Build sdist and wheel
+        run: |
+          rm -rf dist/
+          python -m build
+          twine check --strict dist/*
+
+      - name: Smoke-test wheel in clean virtualenv
+        run: |
+          python -m venv /tmp/wheel-smoke
+          /tmp/wheel-smoke/bin/pip install dist/*.whl
+          /tmp/wheel-smoke/bin/python -c "import predgate; print('Installed predgate:', predgate.__version__)"
+          /tmp/wheel-smoke/bin/predgate --help >/dev/null
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    name: Publish to TestPyPI (Trusted Publishing / OIDC)
+    needs: test-and-build
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/predgate
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI via OIDC
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+
+  publish-pypi:
+    name: Publish to PyPI (Trusted Publishing / OIDC)
+    needs: publish-testpypi
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/predgate
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI via OIDC
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  github-release:
+    name: Create GitHub Release & Attach Artifacts
+    needs: [test-and-build, publish-testpypi]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Locate per-seed benchmark artifact and release notes
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="docs/RELEASE_NOTES_${TAG}.md"
+          if [ ! -f "$NOTES_FILE" ]; then
+            NOTES_FILE="CHANGELOG.md"
+          fi
+          PER_SEED=$(python3 -c "import json; print(json.load(open('docs/benchmark_results.json')).get('per_seed_artifact', ''))")
+          IS_PRE="false"
+          if [[ "$TAG" == *"-"* ]]; then
+            IS_PRE="true"
+          fi
+          echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          echo "per_seed=${PER_SEED}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILES=(dist/*)
+          if [ -n "${{ steps.meta.outputs.per_seed }}" ] && [ -f "${{ steps.meta.outputs.per_seed }}" ]; then
+            FILES+=("${{ steps.meta.outputs.per_seed }}")
+          else
+            echo "::notice::Per-seed artifact '${{ steps.meta.outputs.per_seed }}' is gitignored and not in checkout; attach it after release via: gh release upload ${GITHUB_REF_NAME} ${{ steps.meta.outputs.per_seed }}"
+          fi
+          PRE_FLAG=""
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+            PRE_FLAG="--prerelease"
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            "${FILES[@]}" \
+            --title "PredGate ${GITHUB_REF_NAME}" \
+            --notes-file "${{ steps.meta.outputs.notes_file }}" \
+            ${PRE_FLAG}

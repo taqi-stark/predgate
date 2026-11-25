@@ -1,0 +1,26 @@
+name: Feature Request
+description: Suggest a new check, metric, integration, or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What regression or workflow gap are you trying to catch or streamline?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the CLI flag, config field, check behavior, or UI change you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: False-positive / alert-fatigue considerations
+      description: How should this behave on benign retrains or small sample sizes?
+    validations:
+      required: false
