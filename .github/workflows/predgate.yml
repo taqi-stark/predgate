@@ -42,8 +42,8 @@ jobs:
             exit 1
           fi
 
-          # Fail closed if the base ref cannot be fetched or resolved
-          git fetch --no-tags --depth=1 origin "${BASE_REF}"
+          # Fail closed if the base ref cannot be fetched or resolved (avoid --depth=1 which breaks three-dot merge-base diffs)
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
           BASE_COMMIT=$(git rev-parse --verify "origin/${BASE_REF}^{commit}")
 
           # Install PredGate from the trusted committed base branch, never from the untrusted PR head

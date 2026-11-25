@@ -46,7 +46,4 @@ In your GitHub repository (**Settings → Environments**):
    git tag -a v0.1.0-alpha -m "PredGate v0.1.0-alpha"
    git push origin v0.1.0-alpha
    ```
-4. Attach the gitignored per-seed benchmark artifact to the created GitHub Release:
-   ```bash
-   gh release upload v0.1.0-alpha release_artifacts/benchmark_per_seed_<commit>.json
-   ```
+4. The `github-release` job in `.github/workflows/release.yml` automatically unpacks `docs/benchmark_per_seed_<commit>.json.gz` and attaches `benchmark_per_seed_<commit>.json` alongside the `dist/*` wheel and sdist to the created GitHub Release.

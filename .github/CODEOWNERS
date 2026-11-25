@@ -5,7 +5,9 @@
 # Enable in GitHub:
 #   Settings -> Branches -> Branch protection rules -> Require review from Code Owners
 
-# Active rule for personal GitHub repository owner covering /champion/ and /champion.dvc:
+# ── Option A: Personal / User GitHub Account (active) ────────────────────────
+# Active rule covering both /champion/ and /champion.dvc
+# (replace with @<your-github-username> if forked to another personal account):
 /champion* @taqi-stark
 
 # ── Option B: GitHub Organization Account (commented reference) ──────────────

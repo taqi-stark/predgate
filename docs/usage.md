@@ -6,12 +6,12 @@ This guide covers getting started, CLI commands, configuration options, threshol
 
 ## 1. Quickstart
 
-Install PredGate in a virtual environment:
+Install PredGate in a virtual environment (requires Python 3.10+; on Debian/Ubuntu install `git`, `python3-pip`, and `python3-venv` if missing):
 
 ```bash
 git clone https://github.com/taqi-stark/predgate.git
 cd predgate
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
@@ -22,11 +22,14 @@ Run the quality gate on the included credit-risk demo:
 # 1. Generate synthetic dataset and train demo model
 python demo/train.py
 
-# 2. Run the full PredGate quality check suite (default / balanced thresholds)
+# 2. Verify environment and configuration
+predgate doctor --config predgate.yaml
+
+# 3. Run the full PredGate quality check suite (default / balanced thresholds)
 predgate run --config predgate.yaml
 
-# 3. View the generated report
-open predgate_output/report.html
+# 4. View the generated report (macOS: open | Linux desktop: xdg-open | or open in a browser)
+open predgate_output/report.html   # Linux: xdg-open predgate_output/report.html
 ```
 
 ---

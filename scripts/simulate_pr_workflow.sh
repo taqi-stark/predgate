@@ -23,7 +23,7 @@ git checkout --quiet "$HEAD_REF"
 
 # 2. Step: Fetch trusted base branch & install pinned PredGate (using offline wheelhouse from .venv if available)
 echo "--- [Step 1] Fetch trusted base branch & archive pinned PredGate ---"
-git fetch --no-tags --depth=1 origin "${BASE_REF}"
+git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
 BASE_COMMIT=$(git rev-parse --verify "origin/${BASE_REF}^{commit}")
 TRUSTED_DIR="$SIM_ROOT/predgate-trusted"
 mkdir -p "$TRUSTED_DIR"

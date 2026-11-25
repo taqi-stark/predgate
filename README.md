@@ -13,16 +13,21 @@
 
 ## Quickstart
 
-Run PredGate locally on the included credit-risk demo in 3 commands:
+Run PredGate locally on the included credit-risk demo (requires Python 3.10+; on Ubuntu/Debian install `git`, `python3-pip`, and `python3-venv` if not already present):
 
 ```bash
-# 1. Install PredGate (requires Python 3.10+)
+# 1. Clone and install PredGate inside a virtual environment
+git clone https://github.com/taqi-stark/predgate.git
+cd predgate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 
 # 2. Generate demo train/test/reference data
 python demo/train.py
 
-# 3. Run all 8 checks (optionally pass --preset strict|balanced|quiet)
+# 3. Verify setup and run all 8 checks (optionally pass --preset strict|balanced|quiet)
+predgate doctor --config predgate.yaml
 predgate run --config predgate.yaml
 ```
 

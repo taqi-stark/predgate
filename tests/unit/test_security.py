@@ -180,7 +180,7 @@ def test_workflow_and_action_fail_closed_on_missing_base_ref(tmp_path: Path) -> 
     probe_script = (
         "set -euo pipefail\n"
         'BASE_REF="nonexistent-base-branch"\n'
-        'git fetch --no-tags --depth=1 origin "${BASE_REF}"\n'
+        'git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"\n'
         'git rev-parse --verify "origin/${BASE_REF}^{commit}"\n'
     )
     proc = subprocess.run(

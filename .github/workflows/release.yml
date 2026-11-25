@@ -141,12 +141,14 @@ jobs:
           if [ ! -f "$NOTES_FILE" ]; then
             NOTES_FILE="CHANGELOG.md"
           fi
+          COMMIT_HASH=$(python3 -c "import json; print(json.load(open('docs/benchmark_results.json')).get('commit_hash', ''))")
           PER_SEED=$(python3 -c "import json; print(json.load(open('docs/benchmark_results.json')).get('per_seed_artifact', ''))")
           IS_PRE="false"
           if [[ "$TAG" == *"-"* ]]; then
             IS_PRE="true"
           fi
           echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          echo "commit_hash=${COMMIT_HASH}" >> "$GITHUB_OUTPUT"
           echo "per_seed=${PER_SEED}" >> "$GITHUB_OUTPUT"
           echo "prerelease=${IS_PRE}" >> "$GITHUB_OUTPUT"
 
@@ -155,10 +157,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           FILES=(dist/*)
-          if [ -n "${{ steps.meta.outputs.per_seed }}" ] && [ -f "${{ steps.meta.outputs.per_seed }}" ]; then
-            FILES+=("${{ steps.meta.outputs.per_seed }}")
+          PER_SEED="${{ steps.meta.outputs.per_seed }}"
+          COMMIT_HASH="${{ steps.meta.outputs.commit_hash }}"
+          GZ_ARTIFACT="docs/benchmark_per_seed_${COMMIT_HASH}.json.gz"
+          if [ -n "$PER_SEED" ] && [ -f "$PER_SEED" ]; then
+            FILES+=("$PER_SEED")
+          elif [ -f "$GZ_ARTIFACT" ]; then
+            OUT_JSON="benchmark_per_seed_${COMMIT_HASH}.json"
+            gunzip -c "$GZ_ARTIFACT" > "$OUT_JSON"
+            FILES+=("$OUT_JSON")
           else
-            echo "::notice::Per-seed artifact '${{ steps.meta.outputs.per_seed }}' is gitignored and not in checkout; attach it after release via: gh release upload ${GITHUB_REF_NAME} ${{ steps.meta.outputs.per_seed }}"
+            echo "::error::Per-seed benchmark artifact not found (${PER_SEED} or ${GZ_ARTIFACT})" >&2
+            exit 1
           fi
           PRE_FLAG=""
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
