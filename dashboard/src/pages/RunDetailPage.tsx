@@ -21,11 +21,21 @@ export default function RunDetailPage() {
 
   const checks = run.check_results || [];
   const reasons = run.verdict?.reasons || [];
+  const modelFamilyChange = run.verdict?.model_family_change;
+  const slicesCheck = checks.find(c => c.name === 'slices');
+  const inconclusiveEntries: any[] = slicesCheck?.details?.inconclusive_entries || [];
+  const inconclusiveNotes: string[] = checks.flatMap(
+    c => (c.details?.inconclusive_notes || []) as string[]
+  );
+  const hasInconclusive = inconclusiveEntries.length > 0 || inconclusiveNotes.length > 0;
 
-  const tabs = ['data_contract', 'drift', 'slices', 'behavioral', 'budgets', 'fairness'];
+  const tabs = [
+    'data_contract', 'drift', 'leakage', 'label_shift',
+    'slices', 'behavioral', 'budgets', 'fairness',
+  ];
   const tabLabels: Record<string, string> = {
-    data_contract: 'Data', drift: 'Drift', slices: 'Slices',
-    behavioral: 'Behavioral', budgets: 'Budgets', fairness: 'Fairness',
+    data_contract: 'Data', drift: 'Drift', leakage: 'Leakage', label_shift: 'Label Shift',
+    slices: 'Slices', behavioral: 'Behavioral', budgets: 'Budgets', fairness: 'Fairness',
   };
 
   const activeCheck = checks.find(c => c.name === activeTab);
@@ -57,6 +67,69 @@ export default function RunDetailPage() {
         {run.branch && <span style={{ color: 'var(--text-secondary)' }}>branch {run.branch}</span>}
         {run.git_sha && <span className="mono" style={{ color: 'var(--text-muted)' }}>commit {run.git_sha.slice(0, 7)}</span>}
       </div>
+
+      {/* Model Family Change Banner */}
+      {modelFamilyChange?.changed && (
+        <div
+          className="card"
+          style={{
+            borderLeft: '4px solid var(--accent)',
+            background: 'rgba(59, 130, 246, 0.10)',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            Model family changed: <code>{modelFamilyChange.champion_family}</code> &rarr;{' '}
+            <code>{modelFamilyChange.candidate_family}</code>
+          </div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+            Algorithm swaps can shift single-row inference latency and subgroup selection rates even without data or label bugs.
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Inconclusive Slices Banner */}
+      {hasInconclusive && (
+        <div
+          className="card"
+          style={{
+            borderLeft: '4px solid var(--warn)',
+            background: 'var(--warn-bg)',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span className="status-badge warn">INCONCLUSIVE SLICES</span>
+            <strong>Wide confidence intervals — a real drop may go undetected</strong>
+          </div>
+          {inconclusiveEntries.length > 0 ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Slice</th><th>N</th><th>Point Drop</th><th>95% CI</th><th>CI Width</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inconclusiveEntries.slice(0, 10).map((e: any, i: number) => (
+                  <tr key={i}>
+                    <td><code>{e.slice}</code></td>
+                    <td>{e.n_rows}</td>
+                    <td className="mono">{e.diff > 0 ? '+' : ''}{e.diff?.toFixed(3)}</td>
+                    <td className="mono">[{e.ci_lower?.toFixed(3)}, {e.ci_upper?.toFixed(3)}]</td>
+                    <td className="mono" style={{ color: 'var(--warn)', fontWeight: 700 }}>
+                      {e.ci_width?.toFixed(3)} (&gt; {e.max_ci_width?.toFixed(2)})
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <ul style={{ paddingLeft: 18 }}>
+              {inconclusiveNotes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Reasons */}
       {reasons.length > 0 && (
@@ -119,12 +192,12 @@ export default function RunDetailPage() {
               <thead>
                 <tr>
                   <th>Slice</th><th>N</th><th>Champion</th><th>Candidate</th>
-                  <th>Diff</th><th>CI</th><th>Status</th>
+                  <th>Diff</th><th>CI</th><th>Width</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {activeCheck.details.slices.slice(0, 20).map((s: any, i: number) => (
-                  <tr key={i}>
+                  <tr key={i} style={s.inconclusive ? { background: 'var(--warn-bg)' } : undefined}>
                     <td>{s.slice}</td>
                     <td>{s.n_rows}</td>
                     <td className="mono">{s.champion_metric?.toFixed(3)}</td>
@@ -133,7 +206,15 @@ export default function RunDetailPage() {
                       {s.diff > 0 ? '+' : ''}{s.diff?.toFixed(3)}
                     </td>
                     <td className="mono">[{s.ci_lower?.toFixed(3)}, {s.ci_upper?.toFixed(3)}]</td>
-                    <td><span className={`status-badge ${s.verdict || 'pass'}`}>{s.verdict || 'pass'}</span></td>
+                    <td className="mono">{s.ci_width !== undefined ? s.ci_width.toFixed(3) : '—'}</td>
+                    <td style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span className={`status-badge ${s.verdict || 'pass'}`}>{s.verdict || 'pass'}</span>
+                      {s.inconclusive && (
+                        <span className="status-badge warn" title="Confidence interval width exceeds max_ci_width">
+                          inconclusive
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -72,6 +72,111 @@ class LoadResult:
     is_first_run: bool = False
 
 
+def _is_mock_object(obj: Any) -> bool:
+    """Return True if obj is a unittest.mock proxy (which fabricates attributes dynamically)."""
+    mod = getattr(type(obj), "__module__", "") or ""
+    return mod.startswith("unittest.mock") or mod.startswith("mock.")
+
+
+def _is_ensemble_estimator(obj: Any) -> bool:
+    """Return True if obj is an ensemble whose `.estimator` is a template base learner, not a wrapper."""
+    mod = getattr(type(obj), "__module__", "") or ""
+    if "ensemble" in mod:
+        return True
+    obj_dict = getattr(obj, "__dict__", {})
+    return any(k in obj_dict for k in ("n_estimators", "estimators_", "estimators"))
+
+
+def detect_model_family(model: Any) -> dict[str, str]:
+    """Identify the underlying estimator algorithm / model family of a model or pipeline.
+
+    Unwraps scikit-learn ``Pipeline`` steps, search/target wrappers (``best_estimator_``,
+    ``regressor_``), custom single-model wrappers (``base_model``, ``classifier``, ``model``),
+    and non-ensemble single-model wrappers (e.g. ``CalibratedClassifierCV.estimator``), while
+    never unwrapping ensemble template learners (e.g. ``RandomForestClassifier.estimator``)
+    or dynamic mock objects.
+    """
+    est = model
+    seen: set[int] = set()
+    for _ in range(10):
+        if est is None or id(est) in seen or _is_mock_object(est):
+            break
+        seen.add(id(est))
+
+        obj_dict = getattr(est, "__dict__", {})
+        steps = obj_dict.get("steps")
+        if (
+            isinstance(steps, list)
+            and steps
+            and isinstance(steps[-1], tuple)
+            and len(steps[-1]) == 2
+            and steps[-1][1] is not None
+        ):
+            est = steps[-1][1]
+            continue
+
+        unwrapped = False
+        candidate_attrs: tuple[str, ...] = (
+            "best_estimator_",
+            "regressor_",
+            "base_model",
+            "classifier",
+            "model",
+        )
+        if not _is_ensemble_estimator(est):
+            candidate_attrs = (*candidate_attrs, "estimator")
+        for attr in candidate_attrs:
+            if attr not in obj_dict:
+                continue
+            inner = obj_dict[attr]
+            if (
+                inner is not None
+                and inner is not est
+                and not _is_mock_object(inner)
+                and hasattr(inner, "predict")
+            ):
+                est = inner
+                unwrapped = True
+                break
+        if not unwrapped:
+            break
+
+    cls = type(est)
+    top_pkg = cls.__module__.split(".")[0] if cls.__module__ else ""
+    qualified = f"{top_pkg}.{cls.__name__}" if top_pkg else cls.__name__
+    return {
+        "name": cls.__name__,
+        "module": cls.__module__,
+        "qualified": qualified,
+    }
+
+
+def detect_model_family_change(
+    champion_model: Any | None,
+    candidate_model: Any | None,
+) -> dict[str, Any] | None:
+    """Compare champion and candidate model families and return change metadata."""
+    if champion_model is None or candidate_model is None:
+        return None
+    champ = detect_model_family(champion_model)
+    cand = detect_model_family(candidate_model)
+    changed = champ["qualified"] != cand["qualified"]
+    note = (
+        f"Model family changed: Champion ({champ['name']}) -> Candidate ({cand['name']}). "
+        "Algorithm swaps can shift single-row latency and subgroup selection rates even without data or label bugs."
+        if changed
+        else ""
+    )
+    return {
+        "changed": changed,
+        "champion_family": champ["name"],
+        "candidate_family": cand["name"],
+        "champion_qualified": champ["qualified"],
+        "candidate_qualified": cand["qualified"],
+        "note": note,
+    }
+
+
 def compute_file_hash(path: str | Path) -> str:
     """Compute SHA-256 hash of a file.
 

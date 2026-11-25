@@ -266,4 +266,40 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     assert "Latency FAIL (95% CI)" in rendered
     assert "Full Fault Validation" in rendered
     assert "Evidently" in rendered
+    assert "All five benchmark datasets" in rendered
+    assert "## How to Reproduce" in rendered
+    assert "### Exact Evidently Comparator Configuration" in rendered
+    assert "ClassificationPreset" in rendered
     assert "| **UCI Adult** |" not in rendered
+
+    # Verify optional preset_benchmark_results.json table renders cleanly when sibling file exists
+    preset_json = tmp_path / "preset_benchmark_results.json"
+    preset_entry = {
+        "n_trials": 10,
+        "non_swap_n_trials": 8,
+        "quality_fail": {"count": 0, "rate": 0.0, "ci_95": [0.0, 0.278]},
+        "quality_warn_only": {"count": 1, "rate": 0.1, "ci_95": [0.018, 0.404]},
+        "latency_fail": {"count": 1, "rate": 0.1, "ci_95": [0.018, 0.404]},
+        "combined_fail": {"count": 1, "rate": 0.1, "ci_95": [0.018, 0.404]},
+        "combined_warn_only": {"count": 1, "rate": 0.1, "ci_95": [0.018, 0.404]},
+        "non_swap_quality_fail": {"count": 0, "rate": 0.0, "ci_95": [0.0, 0.324]},
+    }
+    preset_json.write_text(
+        json.dumps(
+            {
+                "command": "python scripts/bench_presets.py --n-seeds 2 --start-seed 11000",
+                "commit_hash": "deadbee",
+                "seed_range": "11000..11001",
+                "presets": {
+                    "strict": preset_entry,
+                    "balanced": preset_entry,
+                    "quiet": preset_entry,
+                },
+            }
+        )
+    )
+    rendered_with_presets = generate_benchmark_markdown_from_json(json_file, md_out)
+    assert "Config Presets Benign-Change Comparison" in rendered_with_presets
+    assert "`strict`" in rendered_with_presets
+    assert "`balanced`" in rendered_with_presets
+    assert "`quiet`" in rendered_with_presets

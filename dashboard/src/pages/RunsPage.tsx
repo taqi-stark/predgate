@@ -125,6 +125,14 @@ export default function RunsPage() {
                 <td className="mono">{run.git_sha?.slice(0, 7) || '—'}</td>
                 <td style={{ maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {run.summary}
+                  {(run.metrics?.slices_n_inconclusive_slices || 0) > 0 && (
+                    <span
+                      className="status-badge warn"
+                      style={{ marginLeft: 8, fontSize: 10, padding: '1px 6px' }}
+                    >
+                      {Math.round(run.metrics.slices_n_inconclusive_slices)} inconclusive
+                    </span>
+                  )}
                 </td>
                 <td className="time-ago">{timeAgo(run.created_at)}</td>
               </tr>

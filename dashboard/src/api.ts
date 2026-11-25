@@ -44,6 +44,8 @@ export interface SliceData {
   diff: number;
   ci_lower: number;
   ci_upper: number;
+  ci_width?: number;
+  inconclusive?: boolean;
   verdict?: string;
 }
 

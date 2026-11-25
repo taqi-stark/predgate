@@ -12,7 +12,7 @@ inputs:
     required: false
     default: '3.12'
   predgate-spec:
-    description: 'Optional pinned PredGate package spec (e.g. predgate==0.1.0 or git+https://...@<sha>). When omitted on a PR, installs the committed base branch or pinned action ref (never the untrusted PR head).'
+    description: 'Optional pinned PredGate package spec (e.g. predgate==0.1.0a0 or git+https://...@<sha>). When omitted on a PR, installs the committed base branch or pinned action ref (never the untrusted PR head).'
     required: false
     default: ''
   output-dir:

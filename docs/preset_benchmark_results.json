@@ -1,0 +1,982 @@
+{
+  "command": "python scripts/bench_presets.py --n-seeds 30 --start-seed 11000",
+  "commit_hash": "cf42bdc",
+  "n_seeds": 30,
+  "seed_range": "11000..11029",
+  "seeds": [
+    11000,
+    11001,
+    11002,
+    11003,
+    11004,
+    11005,
+    11006,
+    11007,
+    11008,
+    11009,
+    11010,
+    11011,
+    11012,
+    11013,
+    11014,
+    11015,
+    11016,
+    11017,
+    11018,
+    11019,
+    11020,
+    11021,
+    11022,
+    11023,
+    11024,
+    11025,
+    11026,
+    11027,
+    11028,
+    11029
+  ],
+  "datasets": [
+    "UCI Adult",
+    "German Credit",
+    "Synthetic Credit",
+    "Bank Marketing",
+    "COMPAS"
+  ],
+  "changes": [
+    "hyperparam_change",
+    "algo_swap_rf",
+    "algo_swap_logreg",
+    "more_data_20pct",
+    "irrelevant_feature",
+    "preprocessing_change",
+    "drop_irrelevant_feature",
+    "change_imputation",
+    "rescale_inputs"
+  ],
+  "presets": {
+    "strict": {
+      "n_trials": 1350,
+      "thresholds": {
+        "drift": {
+          "warn_at": 0.08,
+          "fail_at": 0.2,
+          "on_new_feature": "warn",
+          "point_mass_warn_delta": 0.08,
+          "point_mass_fail_delta": 0.15
+        },
+        "leakage": {
+          "warn_corr": 0.4,
+          "fail_corr": 0.65,
+          "warn_auc": 0.8,
+          "fail_auc": 0.88
+        },
+        "label_shift": {
+          "warn_delta": 0.03,
+          "fail_delta": 0.07,
+          "alpha": 0.01
+        },
+        "slices": {
+          "max_drop": 0.02,
+          "max_ci_width": 0.08,
+          "on_inconclusive": "warn"
+        },
+        "budgets": {
+          "max_latency_ratio": 1.25
+        },
+        "fairness": {
+          "max_gap_increase": 0.015,
+          "fail_gap_increase": 0.03,
+          "selection_rate_shift_warn": 0.015
+        }
+      },
+      "quality_fail": {
+        "count": 83,
+        "rate": 0.061,
+        "ci_95": [
+          0.05,
+          0.076
+        ]
+      },
+      "quality_warn_only": {
+        "count": 725,
+        "rate": 0.537,
+        "ci_95": [
+          0.51,
+          0.563
+        ]
+      },
+      "quality_flagged": {
+        "count": 808,
+        "rate": 0.599,
+        "ci_95": [
+          0.572,
+          0.624
+        ]
+      },
+      "latency_fail": {
+        "count": 161,
+        "rate": 0.119,
+        "ci_95": [
+          0.103,
+          0.138
+        ]
+      },
+      "latency_warn": {
+        "count": 90,
+        "rate": 0.067,
+        "ci_95": [
+          0.055,
+          0.081
+        ]
+      },
+      "combined_fail": {
+        "count": 205,
+        "rate": 0.152,
+        "ci_95": [
+          0.134,
+          0.172
+        ]
+      },
+      "combined_warn_only": {
+        "count": 716,
+        "rate": 0.53,
+        "ci_95": [
+          0.504,
+          0.557
+        ]
+      },
+      "combined_flagged": {
+        "count": 921,
+        "rate": 0.682,
+        "ci_95": [
+          0.657,
+          0.707
+        ]
+      },
+      "non_swap_n_trials": 1050,
+      "non_swap_quality_fail": {
+        "count": 14,
+        "rate": 0.013,
+        "ci_95": [
+          0.008,
+          0.022
+        ]
+      },
+      "non_swap_quality_warn_only": {
+        "count": 568,
+        "rate": 0.541,
+        "ci_95": [
+          0.511,
+          0.571
+        ]
+      },
+      "algo_swap_n_trials": 300,
+      "algo_swap_quality_fail": {
+        "count": 69,
+        "rate": 0.23,
+        "ci_95": [
+          0.186,
+          0.281
+        ]
+      },
+      "algo_swap_quality_warn_only": {
+        "count": 157,
+        "rate": 0.523,
+        "ci_95": [
+          0.467,
+          0.579
+        ]
+      },
+      "algo_swap_latency_fail": {
+        "count": 150,
+        "rate": 0.5,
+        "ci_95": [
+          0.444,
+          0.556
+        ]
+      },
+      "inconclusive_slice_trials": {
+        "count": 152,
+        "rate": 0.113,
+        "ci_95": [
+          0.097,
+          0.131
+        ]
+      },
+      "per_check": {
+        "drift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 150,
+            "rate": 0.111,
+            "ci_95": [
+              0.095,
+              0.129
+            ]
+          },
+          "flagged": {
+            "count": 150,
+            "rate": 0.111,
+            "ci_95": [
+              0.095,
+              0.129
+            ]
+          }
+        },
+        "leakage": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 468,
+            "rate": 0.347,
+            "ci_95": [
+              0.322,
+              0.372
+            ]
+          },
+          "flagged": {
+            "count": 468,
+            "rate": 0.347,
+            "ci_95": [
+              0.322,
+              0.372
+            ]
+          }
+        },
+        "label_shift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "slices": {
+          "fail": {
+            "count": 25,
+            "rate": 0.019,
+            "ci_95": [
+              0.013,
+              0.027
+            ]
+          },
+          "warn": {
+            "count": 235,
+            "rate": 0.174,
+            "ci_95": [
+              0.155,
+              0.195
+            ]
+          },
+          "flagged": {
+            "count": 260,
+            "rate": 0.193,
+            "ci_95": [
+              0.172,
+              0.214
+            ]
+          }
+        },
+        "fairness": {
+          "fail": {
+            "count": 62,
+            "rate": 0.046,
+            "ci_95": [
+              0.036,
+              0.058
+            ]
+          },
+          "warn": {
+            "count": 217,
+            "rate": 0.161,
+            "ci_95": [
+              0.142,
+              0.181
+            ]
+          },
+          "flagged": {
+            "count": 279,
+            "rate": 0.207,
+            "ci_95": [
+              0.186,
+              0.229
+            ]
+          }
+        },
+        "budgets": {
+          "fail": {
+            "count": 161,
+            "rate": 0.119,
+            "ci_95": [
+              0.103,
+              0.138
+            ]
+          },
+          "warn": {
+            "count": 90,
+            "rate": 0.067,
+            "ci_95": [
+              0.055,
+              0.081
+            ]
+          },
+          "flagged": {
+            "count": 251,
+            "rate": 0.186,
+            "ci_95": [
+              0.166,
+              0.208
+            ]
+          }
+        }
+      }
+    },
+    "balanced": {
+      "n_trials": 1350,
+      "thresholds": {
+        "drift": {
+          "warn_at": 0.1,
+          "fail_at": 0.25,
+          "on_new_feature": "info",
+          "point_mass_warn_delta": 0.1,
+          "point_mass_fail_delta": 0.2
+        },
+        "leakage": {
+          "warn_corr": 0.5,
+          "fail_corr": 0.75,
+          "warn_auc": 0.85,
+          "fail_auc": 0.92
+        },
+        "label_shift": {
+          "warn_delta": 0.05,
+          "fail_delta": 0.1,
+          "alpha": 0.01
+        },
+        "slices": {
+          "max_drop": 0.03,
+          "max_ci_width": 0.1,
+          "on_inconclusive": "warn"
+        },
+        "budgets": {
+          "max_latency_ratio": 1.5
+        },
+        "fairness": {
+          "max_gap_increase": 0.02,
+          "fail_gap_increase": 0.05,
+          "selection_rate_shift_warn": 0.02
+        }
+      },
+      "quality_fail": {
+        "count": 49,
+        "rate": 0.036,
+        "ci_95": [
+          0.028,
+          0.048
+        ]
+      },
+      "quality_warn_only": {
+        "count": 247,
+        "rate": 0.183,
+        "ci_95": [
+          0.163,
+          0.204
+        ]
+      },
+      "quality_flagged": {
+        "count": 296,
+        "rate": 0.219,
+        "ci_95": [
+          0.198,
+          0.242
+        ]
+      },
+      "latency_fail": {
+        "count": 135,
+        "rate": 0.1,
+        "ci_95": [
+          0.085,
+          0.117
+        ]
+      },
+      "latency_warn": {
+        "count": 20,
+        "rate": 0.015,
+        "ci_95": [
+          0.01,
+          0.023
+        ]
+      },
+      "combined_fail": {
+        "count": 163,
+        "rate": 0.121,
+        "ci_95": [
+          0.104,
+          0.139
+        ]
+      },
+      "combined_warn_only": {
+        "count": 180,
+        "rate": 0.133,
+        "ci_95": [
+          0.116,
+          0.153
+        ]
+      },
+      "combined_flagged": {
+        "count": 343,
+        "rate": 0.254,
+        "ci_95": [
+          0.232,
+          0.278
+        ]
+      },
+      "non_swap_n_trials": 1050,
+      "non_swap_quality_fail": {
+        "count": 5,
+        "rate": 0.005,
+        "ci_95": [
+          0.002,
+          0.011
+        ]
+      },
+      "non_swap_quality_warn_only": {
+        "count": 98,
+        "rate": 0.093,
+        "ci_95": [
+          0.077,
+          0.112
+        ]
+      },
+      "algo_swap_n_trials": 300,
+      "algo_swap_quality_fail": {
+        "count": 44,
+        "rate": 0.147,
+        "ci_95": [
+          0.111,
+          0.191
+        ]
+      },
+      "algo_swap_quality_warn_only": {
+        "count": 149,
+        "rate": 0.497,
+        "ci_95": [
+          0.44,
+          0.553
+        ]
+      },
+      "algo_swap_latency_fail": {
+        "count": 135,
+        "rate": 0.45,
+        "ci_95": [
+          0.395,
+          0.507
+        ]
+      },
+      "inconclusive_slice_trials": {
+        "count": 59,
+        "rate": 0.044,
+        "ci_95": [
+          0.034,
+          0.056
+        ]
+      },
+      "per_check": {
+        "drift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "leakage": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "label_shift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "slices": {
+          "fail": {
+            "count": 7,
+            "rate": 0.005,
+            "ci_95": [
+              0.003,
+              0.011
+            ]
+          },
+          "warn": {
+            "count": 139,
+            "rate": 0.103,
+            "ci_95": [
+              0.088,
+              0.12
+            ]
+          },
+          "flagged": {
+            "count": 146,
+            "rate": 0.108,
+            "ci_95": [
+              0.093,
+              0.126
+            ]
+          }
+        },
+        "fairness": {
+          "fail": {
+            "count": 42,
+            "rate": 0.031,
+            "ci_95": [
+              0.023,
+              0.042
+            ]
+          },
+          "warn": {
+            "count": 198,
+            "rate": 0.147,
+            "ci_95": [
+              0.129,
+              0.167
+            ]
+          },
+          "flagged": {
+            "count": 240,
+            "rate": 0.178,
+            "ci_95": [
+              0.158,
+              0.199
+            ]
+          }
+        },
+        "budgets": {
+          "fail": {
+            "count": 135,
+            "rate": 0.1,
+            "ci_95": [
+              0.085,
+              0.117
+            ]
+          },
+          "warn": {
+            "count": 20,
+            "rate": 0.015,
+            "ci_95": [
+              0.01,
+              0.023
+            ]
+          },
+          "flagged": {
+            "count": 155,
+            "rate": 0.115,
+            "ci_95": [
+              0.099,
+              0.133
+            ]
+          }
+        }
+      }
+    },
+    "quiet": {
+      "n_trials": 1350,
+      "thresholds": {
+        "drift": {
+          "warn_at": 0.15,
+          "fail_at": 0.3,
+          "on_new_feature": "info",
+          "point_mass_warn_delta": 0.15,
+          "point_mass_fail_delta": 0.25
+        },
+        "leakage": {
+          "warn_corr": 0.55,
+          "fail_corr": 0.8,
+          "warn_auc": 0.88,
+          "fail_auc": 0.94
+        },
+        "label_shift": {
+          "warn_delta": 0.07,
+          "fail_delta": 0.12,
+          "alpha": 0.01
+        },
+        "slices": {
+          "max_drop": 0.05,
+          "max_ci_width": 0.15,
+          "on_inconclusive": "info"
+        },
+        "budgets": {
+          "max_latency_ratio": 2.0
+        },
+        "fairness": {
+          "max_gap_increase": 0.04,
+          "fail_gap_increase": 0.08,
+          "selection_rate_shift_warn": 0.05
+        }
+      },
+      "quality_fail": {
+        "count": 25,
+        "rate": 0.019,
+        "ci_95": [
+          0.013,
+          0.027
+        ]
+      },
+      "quality_warn_only": {
+        "count": 99,
+        "rate": 0.073,
+        "ci_95": [
+          0.061,
+          0.088
+        ]
+      },
+      "quality_flagged": {
+        "count": 124,
+        "rate": 0.092,
+        "ci_95": [
+          0.078,
+          0.108
+        ]
+      },
+      "latency_fail": {
+        "count": 59,
+        "rate": 0.044,
+        "ci_95": [
+          0.034,
+          0.056
+        ]
+      },
+      "latency_warn": {
+        "count": 48,
+        "rate": 0.036,
+        "ci_95": [
+          0.027,
+          0.047
+        ]
+      },
+      "combined_fail": {
+        "count": 81,
+        "rate": 0.06,
+        "ci_95": [
+          0.049,
+          0.074
+        ]
+      },
+      "combined_warn_only": {
+        "count": 110,
+        "rate": 0.081,
+        "ci_95": [
+          0.068,
+          0.097
+        ]
+      },
+      "combined_flagged": {
+        "count": 191,
+        "rate": 0.141,
+        "ci_95": [
+          0.124,
+          0.161
+        ]
+      },
+      "non_swap_n_trials": 1050,
+      "non_swap_quality_fail": {
+        "count": 1,
+        "rate": 0.001,
+        "ci_95": [
+          0.0,
+          0.005
+        ]
+      },
+      "non_swap_quality_warn_only": {
+        "count": 17,
+        "rate": 0.016,
+        "ci_95": [
+          0.01,
+          0.026
+        ]
+      },
+      "algo_swap_n_trials": 300,
+      "algo_swap_quality_fail": {
+        "count": 24,
+        "rate": 0.08,
+        "ci_95": [
+          0.054,
+          0.116
+        ]
+      },
+      "algo_swap_quality_warn_only": {
+        "count": 82,
+        "rate": 0.273,
+        "ci_95": [
+          0.226,
+          0.326
+        ]
+      },
+      "algo_swap_latency_fail": {
+        "count": 59,
+        "rate": 0.197,
+        "ci_95": [
+          0.156,
+          0.245
+        ]
+      },
+      "inconclusive_slice_trials": {
+        "count": 3,
+        "rate": 0.002,
+        "ci_95": [
+          0.001,
+          0.007
+        ]
+      },
+      "per_check": {
+        "drift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "leakage": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "label_shift": {
+          "fail": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "warn": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          },
+          "flagged": {
+            "count": 0,
+            "rate": 0.0,
+            "ci_95": [
+              0.0,
+              0.003
+            ]
+          }
+        },
+        "slices": {
+          "fail": {
+            "count": 3,
+            "rate": 0.002,
+            "ci_95": [
+              0.001,
+              0.007
+            ]
+          },
+          "warn": {
+            "count": 29,
+            "rate": 0.021,
+            "ci_95": [
+              0.015,
+              0.031
+            ]
+          },
+          "flagged": {
+            "count": 32,
+            "rate": 0.024,
+            "ci_95": [
+              0.017,
+              0.033
+            ]
+          }
+        },
+        "fairness": {
+          "fail": {
+            "count": 22,
+            "rate": 0.016,
+            "ci_95": [
+              0.011,
+              0.025
+            ]
+          },
+          "warn": {
+            "count": 93,
+            "rate": 0.069,
+            "ci_95": [
+              0.057,
+              0.084
+            ]
+          },
+          "flagged": {
+            "count": 115,
+            "rate": 0.085,
+            "ci_95": [
+              0.071,
+              0.101
+            ]
+          }
+        },
+        "budgets": {
+          "fail": {
+            "count": 59,
+            "rate": 0.044,
+            "ci_95": [
+              0.034,
+              0.056
+            ]
+          },
+          "warn": {
+            "count": 48,
+            "rate": 0.036,
+            "ci_95": [
+              0.027,
+              0.047
+            ]
+          },
+          "flagged": {
+            "count": 107,
+            "rate": 0.079,
+            "ci_95": [
+              0.066,
+              0.095
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -4,11 +4,27 @@ build-backend = "hatchling.build"
 
 [project]
 name = "predgate"
-version = "0.1.0"
+version = "0.1.0a0"
 description = "CI/CD quality gate for machine learning models"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [
+    { name = "PredGate Contributors" },
+]
+keywords = ["mlops", "ci-cd", "machine-learning", "quality-gate", "drift", "fairness", "model-evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "typer>=0.9.0",
     "pydantic>=2.0.0",
@@ -40,11 +56,31 @@ dev = [
     "mypy>=1.7.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/taqi-stark/predgate"
+Repository = "https://github.com/taqi-stark/predgate"
+Issues = "https://github.com/taqi-stark/predgate/issues"
+
 [project.scripts]
 predgate = "predgate.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/predgate"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/demo",
+    "/scripts",
+    "/README.md",
+    "/LICENSE",
+    "/MIGRATION.md",
+    "/pyproject.toml",
+    "/predgate.yaml",
+    "/action.yml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

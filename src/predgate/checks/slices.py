@@ -7,10 +7,11 @@ Applies Holm-Bonferroni correction across slices.
 Gating rules:
 - FAIL only when the LOWER bound of the drop CI exceeds ``max_drop``
   (statistically confident regression beyond the allowed drop).
-- WARN when the point drop exceeds ``max_drop`` but the CI includes values
+- WARN when the point drop exceeds ``max_drop`` but the interval includes values
   at or below ``max_drop``.
 - Mark any slice whose CI width exceeds ``max_ci_width`` as ``inconclusive``
-  in details and reports.
+  in details and reports; when ``on_inconclusive == "warn"`` (default),
+  inconclusive slices also elevate an otherwise-passing check to ``WARN``.
 """
 
 from __future__ import annotations
@@ -147,12 +148,24 @@ def run_slices_check(
     warning_slices: list[str] = []
     inconclusive_slices: list[str] = []
     inconclusive_notes: list[str] = []
+    inconclusive_entries: list[dict[str, Any]] = []
 
     for i, sr in enumerate(slice_results):
         sr["significant"] = rejected[i] if i < len(rejected) else False
 
         if sr["inconclusive"]:
             inconclusive_slices.append(sr["slice"])
+            inconclusive_entries.append(
+                {
+                    "slice": sr["slice"],
+                    "n_rows": sr["n_rows"],
+                    "diff": sr["diff"],
+                    "ci_lower": sr["ci_lower"],
+                    "ci_upper": sr["ci_upper"],
+                    "ci_width": sr["ci_width"],
+                    "max_ci_width": config.max_ci_width,
+                }
+            )
             inconclusive_notes.append(
                 f"inconclusive interval on '{sr['slice']}' (n={sr['n_rows']}, "
                 f"95% CI [{sr['ci_lower']:+.3f}, {sr['ci_upper']:+.3f}], "
@@ -191,11 +204,19 @@ def run_slices_check(
         summary = f"Point drop exceeds {config.max_drop:.2f} (CI overlaps threshold): " + "; ".join(
             warning_slices[:3]
         )
+    elif inconclusive_slices and config.on_inconclusive == "warn":
+        status = "warn"
+        summary = (
+            f"Inconclusive slices ({len(inconclusive_slices)} slice(s) CI width > "
+            f"{config.max_ci_width:.2f}): " + "; ".join(inconclusive_slices[:3])
+        )
     else:
         status = "pass"
         summary = f"No slice regression detected (overall {config.metric}: {overall_candidate:.3f})"
 
-    if inconclusive_slices:
+    if inconclusive_slices and not (
+        not has_fail and not has_warn and config.on_inconclusive == "warn"
+    ):
         summary = (
             f"{summary} [inconclusive: {len(inconclusive_slices)} slice(s) wider than "
             f"{config.max_ci_width:.2f}]"
@@ -217,7 +238,9 @@ def run_slices_check(
             "slices": slice_results,
             "worst_5": slice_results[:5],
             "inconclusive_slices": inconclusive_slices,
+            "inconclusive_entries": inconclusive_entries,
             "inconclusive_notes": inconclusive_notes,
+            "on_inconclusive": config.on_inconclusive,
         },
         duration_s=duration,
     )

@@ -7,6 +7,7 @@ Commands:
     predgate promote RUN_ID – set champion (requires approval record)
     predgate reproduce ID   – rebuild and verify
     predgate bench          – fault-injection benchmark
+    predgate doctor         – verify environment, config, schema, and data paths
     predgate serve          – start API and dashboard
 """
 
@@ -63,6 +64,9 @@ def init(
 @app.command()
 def run(
     config: str = typer.Option("predgate.yaml", "--config", "-c", help="Config file path"),
+    preset: str | None = typer.Option(
+        None, "--preset", help="Optional threshold preset override: strict, balanced, or quiet"
+    ),
     branch: str = typer.Option("", "--branch", "-b", help="Branch name"),
     pr_number: int | None = typer.Option(None, "--pr", help="PR number"),
     output: str = typer.Option("", "--output", "-o", help="Output directory for reports"),
@@ -77,7 +81,7 @@ def run(
     from predgate.checks.leakage import run_leakage_check
     from predgate.checks.slices import run_slices_check
     from predgate.config import load_config
-    from predgate.loader import load_candidate_and_champion
+    from predgate.loader import detect_model_family_change, load_candidate_and_champion
     from predgate.registry import log_run_to_mlflow
     from predgate.report import build_html_report, build_json_payload, build_pr_comment
     from predgate.verdict import compute_verdict
@@ -86,7 +90,7 @@ def run(
 
     # Load config
     try:
-        cfg = load_config(config)
+        cfg = load_config(config, preset_override=preset)  # type: ignore[arg-type]
     except FileNotFoundError:
         console.print(f"[red]Config file not found:[/red] {config}")
         console.print("Run 'predgate init' to create one.")
@@ -95,7 +99,8 @@ def run(
         console.print(f"[red]Invalid config:[/red] {e}")
         raise typer.Exit(1)
 
-    console.print(f"Project: [bold]{cfg.project}[/bold]  Seed: {cfg.seed}")
+    preset_label = f"  Preset: {cfg.preset}" if cfg.preset else ""
+    console.print(f"Project: [bold]{cfg.project}[/bold]  Seed: {cfg.seed}{preset_label}")
 
     # Load models
     with console.status("Loading candidate and champion models..."):
@@ -109,12 +114,17 @@ def run(
         console.print(
             "[yellow]First run — no champion found. Comparison checks will be skipped.[/yellow]"
         )
+    family_change = detect_model_family_change(
+        load_result.champion_model, load_result.candidate_model
+    )
+    if family_change and family_change.get("changed"):
+        console.print(f"[cyan]Note:[/cyan] {family_change['note']}")
     console.print(f"Training time: {load_result.train_time_s:.2f}s\n")
 
     # Run checks
     results: list[CheckResult] = []
 
-    with console.status("[1/6] Data contract check..."):
+    with console.status("[1/8] Data contract check..."):
         cr = run_data_contract_check(
             load_result.train_df,
             load_result.test_df,
@@ -155,7 +165,7 @@ def run(
         results.append(cr)
         _print_check_result(cr)
 
-    with console.status("[3/6] Slice regression check..."):
+    with console.status("[5/8] Slice regression check..."):
         cr = run_slices_check(
             load_result.test_df,
             load_result.target_column,
@@ -167,7 +177,7 @@ def run(
         results.append(cr)
         _print_check_result(cr)
 
-    with console.status("[4/6] Behavioral check..."):
+    with console.status("[6/8] Behavioral check..."):
         cr = run_behavioral_check(
             load_result.test_df,
             load_result.target_column,
@@ -203,7 +213,7 @@ def run(
         _print_check_result(cr)
 
     # Compute verdict
-    verdict = compute_verdict(results, cfg.verdict)
+    verdict = compute_verdict(results, cfg.verdict, model_family_change=family_change)
 
     # Print verdict
     console.print()
@@ -468,6 +478,54 @@ def reproduce(
 
 
 @app.command()
+def doctor(
+    config: str = typer.Option("predgate.yaml", "--config", "-c", help="Config file path"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+) -> None:
+    """Check Python, git, DVC, MLflow, config, schema import, and data paths."""
+    from predgate.doctor import run_doctor
+
+    report = run_doctor(config_path=config)
+
+    if json_output:
+        typer.echo(json.dumps(report.to_dict(), indent=2))
+        if not report.ok:
+            raise typer.Exit(1)
+        return
+
+    table = Table(title="PredGate Doctor")
+    table.add_column("Check", style="bold")
+    table.add_column("Status")
+    table.add_column("Detail")
+    table.add_column("Suggested Fix")
+
+    status_styles = {
+        "ok": "[green]OK[/green]",
+        "warn": "[yellow]WARN[/yellow]",
+        "fail": "[red]FAIL[/red]",
+    }
+    for chk in report.checks:
+        table.add_row(
+            chk.name,
+            status_styles.get(chk.status, chk.status),
+            chk.detail,
+            chk.fix or "—",
+        )
+
+    console.print(table)
+    if report.ok:
+        if report.n_warn:
+            console.print(f"\n[yellow]Doctor passed with {report.n_warn} warning(s).[/yellow]")
+        else:
+            console.print("\n[bold green]All doctor checks passed.[/bold green]")
+    else:
+        console.print(
+            f"\n[bold red]Doctor found {report.n_fail} error(s) and {report.n_warn} warning(s).[/bold red]"
+        )
+        raise typer.Exit(1)
+
+
+@app.command()
 def bench() -> None:
     """Run the fault-injection benchmark."""
     console.print("[bold]PredGate Benchmark[/bold] — Fault Injection Suite\n")
@@ -673,6 +731,8 @@ def _print_check_result(cr: CheckResult) -> None:
 _SCAFFOLD_CONFIG = """\
 project: my-project
 seed: 42
+# Optional threshold preset: strict | balanced | quiet (default thresholds match balanced)
+# preset: balanced
 
 model:
   entrypoint: demo/train.py:build_model
@@ -702,6 +762,8 @@ checks:
     by: [region, age_bucket]
     min_slice_size: 100
     max_drop: 0.03
+    max_ci_width: 0.10
+    on_inconclusive: warn
     confidence: 0.95
     n_bootstrap: 1000
   behavioral:

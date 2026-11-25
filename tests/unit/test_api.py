@@ -218,3 +218,90 @@ def test_slices_compare_models_bench_and_users_endpoints(
     u_list = client.get("/users")
     assert u_list.status_code == 200
     assert any(u["name"] == "new_rev" for u in u_list.json())
+
+
+def test_inconclusive_slices_and_model_family_roundtrip(client: TestClient) -> None:
+    """Dashboard API payloads must preserve inconclusive slice details and model_family_change."""
+    payload = {
+        "project": "dashboard-ui-test",
+        "branch": "feat/rf-swap",
+        "git_sha": "abc9876",
+        "seed": 42,
+        "verdict": {
+            "status": "warn",
+            "summary": "1 checks run, 1 warnings",
+            "model_family_change": {
+                "changed": True,
+                "champion_family": "GradientBoostingClassifier",
+                "candidate_family": "RandomForestClassifier",
+                "note": "Model family changed: Champion (GradientBoostingClassifier) -> Candidate (RandomForestClassifier).",
+            },
+            "reasons": [
+                {
+                    "check_name": "slices",
+                    "severity": "warn",
+                    "message": "Inconclusive slices (1 slice(s) CI width > 0.10): region=North",
+                }
+            ],
+            "check_results": [
+                {
+                    "name": "slices",
+                    "status": "warn",
+                    "summary": "Inconclusive slices (1 slice(s) CI width > 0.10): region=North",
+                    "metrics": {"n_inconclusive_slices": 1.0},
+                    "details": {
+                        "slices": [
+                            {
+                                "slice": "region=North",
+                                "n_rows": 40,
+                                "diff": 0.0,
+                                "ci_lower": -0.08,
+                                "ci_upper": 0.08,
+                                "ci_width": 0.16,
+                                "inconclusive": True,
+                                "verdict": "pass",
+                            }
+                        ],
+                        "worst_5": [],
+                        "inconclusive_slices": ["region=North"],
+                        "inconclusive_entries": [
+                            {
+                                "slice": "region=North",
+                                "n_rows": 40,
+                                "diff": 0.0,
+                                "ci_lower": -0.08,
+                                "ci_upper": 0.08,
+                                "ci_width": 0.16,
+                                "max_ci_width": 0.10,
+                            }
+                        ],
+                        "inconclusive_notes": ["inconclusive interval on 'region=North'"],
+                        "on_inconclusive": "warn",
+                    },
+                    "duration_s": 0.2,
+                }
+            ],
+        },
+    }
+    created = client.post("/runs", json=payload)
+    assert created.status_code == 200
+    run_id = created.json()["id"]
+
+    # Runs list includes slices_n_inconclusive_slices metric used by RunsPage badge
+    runs = client.get("/runs?project=dashboard-ui-test").json()
+    assert len(runs) == 1
+    assert runs[0]["metrics"]["slices_n_inconclusive_slices"] == 1.0
+
+    # Run detail exposes model_family_change and inconclusive_entries used by RunDetailPage banner
+    detail = client.get(f"/runs/{run_id}").json()
+    assert detail["verdict"]["model_family_change"]["changed"] is True
+    assert detail["verdict"]["model_family_change"]["candidate_family"] == "RandomForestClassifier"
+    slices_cr = detail["check_results"][0]
+    assert slices_cr["details"]["on_inconclusive"] == "warn"
+    assert slices_cr["details"]["inconclusive_entries"][0]["slice"] == "region=North"
+
+    # Dedicated slices endpoint also exposes inconclusive metadata
+    slices_ep = client.get(f"/runs/{run_id}/slices").json()
+    assert slices_ep["inconclusive_slices"] == ["region=North"]
+    assert slices_ep["inconclusive_entries"][0]["ci_width"] == 0.16
+    assert slices_ep["on_inconclusive"] == "warn"

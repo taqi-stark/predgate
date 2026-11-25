@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session, SQLModel, col, create_engine, select
 
+from predgate import __version__
 from predgate.api.models import Approval, AuditLog, CheckResultRecord, Run, Settings, User
 from predgate.auth import (
     VALID_ROLES,
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PredGate API",
     description="CI/CD quality gate for ML models",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -270,6 +271,9 @@ def get_run_slices(run_id: int) -> dict:
             "run_id": run_id,
             "slices": details.get("slices", []),
             "worst_5": details.get("worst_5", []),
+            "inconclusive_slices": details.get("inconclusive_slices", []),
+            "inconclusive_entries": details.get("inconclusive_entries", []),
+            "on_inconclusive": details.get("on_inconclusive", "warn"),
         }
 
 

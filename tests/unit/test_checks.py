@@ -351,16 +351,45 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
         def predict(self, X: pd.DataFrame) -> np.ndarray:
             return self._preds[X["idx"].values]
 
-    cfg = SliceConfig(
+    cfg_warn = SliceConfig(
         enabled=True,
         metric="accuracy",
         by=["region"],
         min_slice_size=20,
         max_drop=0.03,
         max_ci_width=0.10,
+        on_inconclusive="warn",
         confidence=0.95,
         n_bootstrap=500,
     )
+    assert SliceConfig().on_inconclusive == "warn"  # default must be warn
+
+    res_near_zero_warn = run_slices_check(
+        df_small,
+        "default",
+        FixedPredModel(champ_preds_zero),
+        FixedPredModel(cand_preds_zero),
+        cfg_warn,
+        seed=42,
+    )
+    assert res_near_zero_warn.status == "warn"
+    assert "Inconclusive slices" in res_near_zero_warn.summary
+    sr0 = res_near_zero_warn.details["slices"][0]
+    assert abs(sr0["diff"]) < 1e-6
+    assert sr0["ci_upper"] > 0.03  # Old buggy gate would have FAILed here!
+    assert sr0["inconclusive"] is True
+    assert len(res_near_zero_warn.details["inconclusive_entries"]) == 1
+
+    verdict = compute_verdict([res_near_zero_warn])
+    pr_md = build_pr_comment(verdict)
+    html_doc = build_html_report(verdict)
+    assert "Inconclusive Slices" in pr_md
+    assert "region=North" in pr_md
+    assert "Inconclusive Slices" in html_doc
+    assert "callout-warn" in html_doc
+
+    # With on_inconclusive="info", near-zero wide CI passes while still prominently surfacing inconclusive slices
+    cfg = cfg_warn.model_copy(update={"on_inconclusive": "info"})
     res_near_zero = run_slices_check(
         df_small,
         "default",
@@ -370,18 +399,10 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
         seed=42,
     )
     assert res_near_zero.status == "pass"
-    sr0 = res_near_zero.details["slices"][0]
-    assert abs(sr0["diff"]) < 1e-6
-    assert sr0["ci_upper"] > 0.03  # Old buggy gate would have FAILed here!
-    assert sr0["inconclusive"] is True
     assert "inconclusive" in res_near_zero.summary
-
-    verdict = compute_verdict([res_near_zero])
-    pr_md = build_pr_comment(verdict)
-    html_doc = build_html_report(verdict)
-    assert "Inconclusive intervals" in pr_md
-    assert "inconclusive" in pr_md.lower()
-    assert "Inconclusive Intervals" in html_doc
+    verdict_info = compute_verdict([res_near_zero])
+    assert "Inconclusive Slices" in build_pr_comment(verdict_info)
+    assert "Inconclusive Slices" in build_html_report(verdict_info)
 
     # 2. Point drop exceeds max_drop (0.05 > 0.03), but wide CI includes <= max_drop -> WARN (not FAIL)
     cand_preds_mod = y.copy()
@@ -418,6 +439,35 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
     sr_f = res_fail.details["slices"][0]
     assert sr_f["ci_lower"] > 0.03
     assert sr_f["verdict"] == "fail"
+
+    # 4. Mixed FAIL slice (narrow CI, n=400) + inconclusive slice (wide CI, n=40)
+    # -> stays FAIL (never downgraded to WARN) and retains inconclusive metadata
+    y_big4 = np.array([0, 1] * 200)
+    champ_big4 = y_big4.copy()
+    cand_big4 = y_big4.copy()
+    cand_big4[:100] = 1 - cand_big4[:100]
+    df_mixed = pd.concat(
+        [
+            pd.DataFrame({"region": ["Big"] * 400, "idx": np.arange(400), "default": y_big4}),
+            pd.DataFrame({"region": ["Small"] * 40, "idx": np.arange(400, 440), "default": y}),
+        ],
+        ignore_index=True,
+    )
+    champ_mix = np.concatenate([champ_big4, champ_preds_zero])
+    cand_mix = np.concatenate([cand_big4, cand_preds_zero])
+    res_mixed = run_slices_check(
+        df_mixed,
+        "default",
+        FixedPredModel(champ_mix),
+        FixedPredModel(cand_mix),
+        cfg_warn,
+        seed=42,
+    )
+    assert res_mixed.status == "fail"
+    assert res_mixed.metrics["n_failing_slices"] == 1.0
+    assert res_mixed.metrics["n_inconclusive_slices"] == 1.0
+    assert "region=Small" in res_mixed.details["inconclusive_slices"]
+    assert "inconclusive" in res_mixed.summary
 
 
 def test_budgets_check_fail_latency() -> None:
