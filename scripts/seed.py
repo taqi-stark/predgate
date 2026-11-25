@@ -247,6 +247,28 @@ _SCENARIO_MODELS_PY = textwrap.dedent("""\
         return NorthDegradedModel(build_baseline(X_train, y_train, seed=seed))
 
 
+    class NoisyWestModel:
+        \"\"\"Adds mild 8% prediction noise on region=West so slice drop overlaps 0.03 (WARN).\"\"\"
+
+        def __init__(self, base_model: Pipeline) -> None:
+            self.base_model = base_model
+
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            preds = np.asarray(self.base_model.predict(X), dtype=int).copy()
+            if "region" in X.columns:
+                rng = np.random.RandomState(7)
+                mask = (X["region"].astype(str).values == "West") & (rng.random(len(X)) < 0.08)
+                preds[mask] = 1 - preds[mask]
+            return preds
+
+        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+            return np.asarray(self.base_model.predict_proba(X), dtype=float)
+
+
+    def build_noisy_west(X_train: pd.DataFrame, y_train: pd.Series, seed: int = 42) -> NoisyWestModel:
+        return NoisyWestModel(build_baseline(X_train, y_train, seed=seed))
+
+
     def build_id_sensitive(X_train: pd.DataFrame, y_train: pd.Series, seed: int = 42) -> Pipeline:
         cat_cols = [c for c in ["region", "age_bucket", "gender"] if c in X_train.columns]
         num_cols = [
@@ -298,12 +320,21 @@ def _write_scenario_data(tmp_dir: Path, base_train: pd.DataFrame) -> dict[str, P
     fair_df.to_csv(p_fair, index=False)
     paths["fairness"] = p_fair
 
-    # 4. Moderate feature drift (15% income scale bump -> WARN-level PSI)
+    # 4. Moderate feature drift (+18% income shift -> PSI ~0.17, genuine drift WARN)
     mild_df = base_train.copy()
-    mild_df["income"] = mild_df["income"] * 1.35
+    mild_df["income"] = mild_df["income"] * 1.18
     p_mild = tmp_dir / "train_mild_drift.csv"
     mild_df.to_csv(p_mild, index=False)
     paths["mild_drift"] = p_mild
+
+    # 5. Mildly correlated proxy feature (|r| ~0.55, genuine leakage WARN under defaults)
+    mild_leak_df = base_train.copy()
+    mild_leak_df["credit_review_hint"] = mild_leak_df["default"] * 0.5 + rng.normal(
+        0.0, 0.22, len(mild_leak_df)
+    )
+    p_mild_leak = tmp_dir / "train_mild_leakage.csv"
+    mild_leak_df.to_csv(p_mild_leak, index=False)
+    paths["mild_leakage"] = p_mild_leak
 
     return paths
 
@@ -369,12 +400,12 @@ def main() -> None:
                 "desc": "Add StandardScaler to numeric pipeline (PASS)",
             },
             {
-                "branch": "feature/subsample-09",
+                "branch": "feature/credit-review-hint",
                 "pr": 38,
-                "entrypoint": f"{models_mod}:build_subsample_tweak",
-                "train": None,
+                "entrypoint": f"{models_mod}:build_baseline",
+                "train": str(perturbed_data["mild_leakage"]),
                 "overrides": {},
-                "desc": "Subsample 0.90 tweak (PASS)",
+                "desc": "Moderately correlated proxy feature (WARN leakage)",
             },
             {
                 "branch": "feature/logreg-challenger",
@@ -385,12 +416,12 @@ def main() -> None:
                 "desc": "Model-family swap GBDT -> LogisticRegression",
             },
             {
-                "branch": "feature/tight-ci-slice-audit",
+                "branch": "feature/west-threshold-tweak",
                 "pr": 40,
-                "entrypoint": f"{models_mod}:build_tuned_lr",
+                "entrypoint": f"{models_mod}:build_noisy_west",
                 "train": None,
-                "overrides": {"slices": {"max_ci_width": 0.02, "on_inconclusive": "warn"}},
-                "desc": "Inconclusive slices WARN demonstration",
+                "overrides": {},
+                "desc": "Mild region=West point drop overlapping threshold (WARN slices)",
             },
             {
                 "branch": "feature/income-refresh-q4",
@@ -398,7 +429,7 @@ def main() -> None:
                 "entrypoint": f"{models_mod}:build_baseline",
                 "train": str(perturbed_data["mild_drift"]),
                 "overrides": {},
-                "desc": "Moderate income distribution shift (WARN)",
+                "desc": "Moderate +18% income distribution shift (WARN drift)",
             },
             {
                 "branch": "bad/degrade-region-north",
