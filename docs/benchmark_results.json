@@ -1,6 +1,6 @@
 {
   "command": "python scripts/bench_public.py --n-seeds 30 --start-seed 13000",
-  "commit_hash": "cb395e1",
+  "commit_hash": "f40f0e7",
   "n_seeds": 30,
   "seed_range": "13000..13029",
   "seeds": [
@@ -35,7 +35,7 @@
     13028,
     13029
   ],
-  "per_seed_artifact": "release_artifacts/benchmark_per_seed_cb395e1.json",
+  "per_seed_artifact": "release_artifacts/benchmark_per_seed_f40f0e7.json",
   "comparator_config": {
     "evidently_version": "0.7.23",
     "pandas_version": "2.3.3",
@@ -351,7 +351,7 @@
     }
   },
   "benign_change_control": {
-    "commit_hash": "cb395e1",
+    "commit_hash": "f40f0e7",
     "n_seeds": 30,
     "seed_range": "13000..13029",
     "seeds": [
@@ -407,47 +407,47 @@
     ],
     "overall": {
       "n_trials": 1350,
-      "fail_count": 163,
-      "fail_rate": 0.121,
+      "fail_count": 168,
+      "fail_rate": 0.124,
       "fail_ci_95": [
-        0.104,
-        0.139
+        0.108,
+        0.143
       ],
-      "warn_only_count": 179,
-      "warn_only_rate": 0.133,
+      "warn_only_count": 170,
+      "warn_only_rate": 0.126,
       "warn_only_ci_95": [
-        0.116,
-        0.152
+        0.109,
+        0.145
       ],
-      "flagged_count": 342,
-      "flagged_rate": 0.253,
+      "flagged_count": 338,
+      "flagged_rate": 0.25,
       "flagged_ci_95": [
-        0.231,
-        0.277
+        0.228,
+        0.274
       ],
-      "quality_fail_count": 54,
-      "quality_fail_rate": 0.04,
+      "quality_fail_count": 56,
+      "quality_fail_rate": 0.041,
       "quality_fail_ci_95": [
-        0.031,
-        0.052
+        0.032,
+        0.053
       ],
-      "quality_warn_only_count": 236,
-      "quality_warn_only_rate": 0.175,
+      "quality_warn_only_count": 234,
+      "quality_warn_only_rate": 0.173,
       "quality_warn_only_ci_95": [
-        0.155,
-        0.196
+        0.154,
+        0.194
       ],
-      "latency_fail_count": 135,
-      "latency_fail_rate": 0.1,
+      "latency_fail_count": 139,
+      "latency_fail_rate": 0.103,
       "latency_fail_ci_95": [
-        0.085,
-        0.117
+        0.088,
+        0.12
       ],
-      "latency_warn_count": 20,
-      "latency_warn_rate": 0.015,
+      "latency_warn_count": 15,
+      "latency_warn_rate": 0.011,
       "latency_warn_ci_95": [
-        0.01,
-        0.023
+        0.007,
+        0.018
       ]
     },
     "rows": [
@@ -520,17 +520,17 @@
         "dataset": "UCI Adult",
         "change": "algo_swap_rf",
         "n_trials": 30,
-        "fail_count": 27,
-        "fail_rate": 0.9,
+        "fail_count": 29,
+        "fail_rate": 0.967,
         "fail_ci_95": [
-          0.744,
-          0.965
+          0.833,
+          0.994
         ],
-        "warn_only_count": 3,
-        "warn_only_rate": 0.1,
+        "warn_only_count": 1,
+        "warn_only_rate": 0.033,
         "warn_only_ci_95": [
-          0.035,
-          0.256
+          0.006,
+          0.167
         ],
         "flagged_count": 30,
         "flagged_rate": 1.0,
@@ -538,29 +538,29 @@
           0.886,
           1.0
         ],
-        "quality_fail_count": 9,
-        "quality_fail_rate": 0.3,
+        "quality_fail_count": 10,
+        "quality_fail_rate": 0.333,
         "quality_fail_ci_95": [
-          0.167,
-          0.479
+          0.192,
+          0.512
         ],
-        "quality_warn_only_count": 16,
-        "quality_warn_only_rate": 0.533,
+        "quality_warn_only_count": 15,
+        "quality_warn_only_rate": 0.5,
         "quality_warn_only_ci_95": [
-          0.361,
-          0.698
+          0.332,
+          0.668
         ],
-        "latency_fail_count": 26,
-        "latency_fail_rate": 0.867,
+        "latency_fail_count": 28,
+        "latency_fail_rate": 0.933,
         "latency_fail_ci_95": [
-          0.703,
-          0.947
+          0.787,
+          0.982
         ],
-        "latency_warn_count": 4,
-        "latency_warn_rate": 0.133,
+        "latency_warn_count": 2,
+        "latency_warn_rate": 0.067,
         "latency_warn_ci_95": [
-          0.053,
-          0.297
+          0.018,
+          0.213
         ],
         "per_group_acc_detected": 15,
         "per_group_acc_rate": 0.5,
@@ -585,11 +585,11 @@
         "dataset": "UCI Adult",
         "change": "algo_swap_logreg",
         "n_trials": 30,
-        "fail_count": 2,
-        "fail_rate": 0.067,
+        "fail_count": 3,
+        "fail_rate": 0.1,
         "fail_ci_95": [
-          0.018,
-          0.213
+          0.035,
+          0.256
         ],
         "warn_only_count": 20,
         "warn_only_rate": 0.667,
@@ -597,17 +597,17 @@
           0.488,
           0.808
         ],
-        "flagged_count": 22,
-        "flagged_rate": 0.733,
+        "flagged_count": 23,
+        "flagged_rate": 0.767,
         "flagged_ci_95": [
-          0.556,
-          0.858
+          0.591,
+          0.882
         ],
-        "quality_fail_count": 2,
-        "quality_fail_rate": 0.067,
+        "quality_fail_count": 3,
+        "quality_fail_rate": 0.1,
         "quality_fail_ci_95": [
-          0.018,
-          0.213
+          0.035,
+          0.256
         ],
         "quality_warn_only_count": 20,
         "quality_warn_only_rate": 0.667,
@@ -786,17 +786,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 0,
+        "warn_only_rate": 0.0,
         "warn_only_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
-        "flagged_count": 1,
-        "flagged_rate": 0.033,
+        "flagged_count": 0,
+        "flagged_rate": 0.0,
         "flagged_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -816,11 +816,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 1,
-        "latency_warn_rate": 0.033,
+        "latency_warn_count": 0,
+        "latency_warn_rate": 0.0,
         "latency_warn_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "per_group_acc_detected": 0,
         "per_group_acc_rate": 0.0,
@@ -916,17 +916,17 @@
           0.006,
           0.167
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 0,
+        "warn_only_rate": 0.0,
         "warn_only_ci_95": [
+          0.0,
+          0.114
+        ],
+        "flagged_count": 1,
+        "flagged_rate": 0.033,
+        "flagged_ci_95": [
           0.006,
           0.167
-        ],
-        "flagged_count": 2,
-        "flagged_rate": 0.067,
-        "flagged_ci_95": [
-          0.018,
-          0.213
         ],
         "quality_fail_count": 1,
         "quality_fail_rate": 0.033,
@@ -934,11 +934,11 @@
           0.006,
           0.167
         ],
-        "quality_warn_only_count": 1,
-        "quality_warn_only_rate": 0.033,
+        "quality_warn_only_count": 0,
+        "quality_warn_only_rate": 0.0,
         "quality_warn_only_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "latency_fail_count": 0,
         "latency_fail_rate": 0.0,
@@ -1046,17 +1046,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 14,
-        "warn_only_rate": 0.467,
+        "warn_only_count": 13,
+        "warn_only_rate": 0.433,
         "warn_only_ci_95": [
-          0.302,
-          0.639
+          0.274,
+          0.608
         ],
-        "flagged_count": 14,
-        "flagged_rate": 0.467,
+        "flagged_count": 13,
+        "flagged_rate": 0.433,
         "flagged_ci_95": [
-          0.302,
-          0.639
+          0.274,
+          0.608
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -1064,11 +1064,11 @@
           0.0,
           0.114
         ],
-        "quality_warn_only_count": 14,
-        "quality_warn_only_rate": 0.467,
+        "quality_warn_only_count": 13,
+        "quality_warn_only_rate": 0.433,
         "quality_warn_only_ci_95": [
-          0.302,
-          0.639
+          0.274,
+          0.608
         ],
         "latency_fail_count": 0,
         "latency_fail_rate": 0.0,
@@ -1105,17 +1105,17 @@
         "dataset": "German Credit",
         "change": "algo_swap_rf",
         "n_trials": 30,
-        "fail_count": 29,
-        "fail_rate": 0.967,
+        "fail_count": 28,
+        "fail_rate": 0.933,
         "fail_ci_95": [
-          0.833,
-          0.994
+          0.787,
+          0.982
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 2,
+        "warn_only_rate": 0.067,
         "warn_only_ci_95": [
-          0.006,
-          0.167
+          0.018,
+          0.213
         ],
         "flagged_count": 30,
         "flagged_rate": 1.0,
@@ -1436,17 +1436,17 @@
           0.006,
           0.167
         ],
-        "warn_only_count": 6,
-        "warn_only_rate": 0.2,
+        "warn_only_count": 4,
+        "warn_only_rate": 0.133,
         "warn_only_ci_95": [
-          0.095,
-          0.373
+          0.053,
+          0.297
         ],
-        "flagged_count": 7,
-        "flagged_rate": 0.233,
+        "flagged_count": 5,
+        "flagged_rate": 0.167,
         "flagged_ci_95": [
-          0.118,
-          0.409
+          0.073,
+          0.336
         ],
         "quality_fail_count": 1,
         "quality_fail_rate": 0.033,
@@ -1454,11 +1454,11 @@
           0.006,
           0.167
         ],
-        "quality_warn_only_count": 6,
-        "quality_warn_only_rate": 0.2,
+        "quality_warn_only_count": 4,
+        "quality_warn_only_rate": 0.133,
         "quality_warn_only_ci_95": [
-          0.095,
-          0.373
+          0.053,
+          0.297
         ],
         "latency_fail_count": 0,
         "latency_fail_rate": 0.0,
@@ -1631,17 +1631,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 0,
-        "warn_only_rate": 0.0,
+        "warn_only_count": 1,
+        "warn_only_rate": 0.033,
         "warn_only_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
-        "flagged_count": 0,
-        "flagged_rate": 0.0,
+        "flagged_count": 1,
+        "flagged_rate": 0.033,
         "flagged_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -1649,11 +1649,11 @@
           0.0,
           0.114
         ],
-        "quality_warn_only_count": 0,
-        "quality_warn_only_rate": 0.0,
+        "quality_warn_only_count": 1,
+        "quality_warn_only_rate": 0.033,
         "quality_warn_only_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "latency_fail_count": 0,
         "latency_fail_rate": 0.0,
@@ -1690,17 +1690,17 @@
         "dataset": "Synthetic Credit",
         "change": "algo_swap_rf",
         "n_trials": 30,
-        "fail_count": 29,
-        "fail_rate": 0.967,
+        "fail_count": 30,
+        "fail_rate": 1.0,
         "fail_ci_95": [
-          0.833,
-          0.994
+          0.886,
+          1.0
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 0,
+        "warn_only_rate": 0.0,
         "warn_only_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "flagged_count": 30,
         "flagged_rate": 1.0,
@@ -1720,17 +1720,17 @@
           0.0,
           0.114
         ],
-        "latency_fail_count": 29,
-        "latency_fail_rate": 0.967,
+        "latency_fail_count": 30,
+        "latency_fail_rate": 1.0,
         "latency_fail_ci_95": [
-          0.833,
-          0.994
+          0.886,
+          1.0
         ],
-        "latency_warn_count": 1,
-        "latency_warn_rate": 0.033,
+        "latency_warn_count": 0,
+        "latency_warn_rate": 0.0,
         "latency_warn_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "per_group_acc_detected": 0,
         "per_group_acc_rate": 0.0,
@@ -1761,17 +1761,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 0,
+        "warn_only_rate": 0.0,
         "warn_only_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
-        "flagged_count": 1,
-        "flagged_rate": 0.033,
+        "flagged_count": 0,
+        "flagged_rate": 0.0,
         "flagged_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -1791,11 +1791,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 1,
-        "latency_warn_rate": 0.033,
+        "latency_warn_count": 0,
+        "latency_warn_rate": 0.0,
         "latency_warn_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "per_group_acc_detected": 0,
         "per_group_acc_rate": 0.0,
@@ -1956,17 +1956,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 0,
-        "warn_only_rate": 0.0,
+        "warn_only_count": 1,
+        "warn_only_rate": 0.033,
         "warn_only_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
-        "flagged_count": 0,
-        "flagged_rate": 0.0,
+        "flagged_count": 1,
+        "flagged_rate": 0.033,
         "flagged_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -1986,11 +1986,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 0,
-        "latency_warn_rate": 0.0,
+        "latency_warn_count": 1,
+        "latency_warn_rate": 0.033,
         "latency_warn_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "per_group_acc_detected": 0,
         "per_group_acc_rate": 0.0,
@@ -2275,17 +2275,17 @@
         "dataset": "Bank Marketing",
         "change": "algo_swap_rf",
         "n_trials": 30,
-        "fail_count": 22,
-        "fail_rate": 0.733,
+        "fail_count": 25,
+        "fail_rate": 0.833,
         "fail_ci_95": [
-          0.556,
-          0.858
+          0.664,
+          0.927
         ],
-        "warn_only_count": 8,
-        "warn_only_rate": 0.267,
+        "warn_only_count": 5,
+        "warn_only_rate": 0.167,
         "warn_only_ci_95": [
-          0.142,
-          0.444
+          0.073,
+          0.336
         ],
         "flagged_count": 30,
         "flagged_rate": 1.0,
@@ -2305,17 +2305,17 @@
           0.664,
           0.927
         ],
-        "latency_fail_count": 22,
-        "latency_fail_rate": 0.733,
+        "latency_fail_count": 25,
+        "latency_fail_rate": 0.833,
         "latency_fail_ci_95": [
-          0.556,
-          0.858
+          0.664,
+          0.927
         ],
-        "latency_warn_count": 7,
-        "latency_warn_rate": 0.233,
+        "latency_warn_count": 5,
+        "latency_warn_rate": 0.167,
         "latency_warn_ci_95": [
-          0.118,
-          0.409
+          0.073,
+          0.336
         ],
         "per_group_acc_detected": 24,
         "per_group_acc_rate": 0.8,
@@ -2606,17 +2606,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 2,
-        "warn_only_rate": 0.067,
+        "warn_only_count": 1,
+        "warn_only_rate": 0.033,
         "warn_only_ci_95": [
-          0.018,
-          0.213
+          0.006,
+          0.167
         ],
-        "flagged_count": 2,
-        "flagged_rate": 0.067,
+        "flagged_count": 1,
+        "flagged_rate": 0.033,
         "flagged_ci_95": [
-          0.018,
-          0.213
+          0.006,
+          0.167
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -2636,11 +2636,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 1,
-        "latency_warn_rate": 0.033,
+        "latency_warn_count": 0,
+        "latency_warn_rate": 0.0,
         "latency_warn_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "per_group_acc_detected": 3,
         "per_group_acc_rate": 0.1,
@@ -2736,17 +2736,17 @@
           0.0,
           0.114
         ],
-        "warn_only_count": 1,
-        "warn_only_rate": 0.033,
+        "warn_only_count": 0,
+        "warn_only_rate": 0.0,
         "warn_only_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
-        "flagged_count": 1,
-        "flagged_rate": 0.033,
+        "flagged_count": 0,
+        "flagged_rate": 0.0,
         "flagged_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "quality_fail_count": 0,
         "quality_fail_rate": 0.0,
@@ -2766,11 +2766,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 1,
-        "latency_warn_rate": 0.033,
+        "latency_warn_count": 0,
+        "latency_warn_rate": 0.0,
         "latency_warn_ci_95": [
-          0.006,
-          0.167
+          0.0,
+          0.114
         ],
         "per_group_acc_detected": 0,
         "per_group_acc_rate": 0.0,
@@ -2860,17 +2860,17 @@
         "dataset": "COMPAS",
         "change": "algo_swap_rf",
         "n_trials": 30,
-        "fail_count": 30,
-        "fail_rate": 1.0,
+        "fail_count": 29,
+        "fail_rate": 0.967,
         "fail_ci_95": [
-          0.886,
-          1.0
+          0.833,
+          0.994
         ],
-        "warn_only_count": 0,
-        "warn_only_rate": 0.0,
+        "warn_only_count": 1,
+        "warn_only_rate": 0.033,
         "warn_only_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "flagged_count": 30,
         "flagged_rate": 1.0,
@@ -2884,23 +2884,23 @@
           0.167,
           0.479
         ],
-        "quality_warn_only_count": 10,
-        "quality_warn_only_rate": 0.333,
+        "quality_warn_only_count": 11,
+        "quality_warn_only_rate": 0.367,
         "quality_warn_only_ci_95": [
-          0.192,
-          0.512
+          0.219,
+          0.545
         ],
-        "latency_fail_count": 30,
-        "latency_fail_rate": 1.0,
+        "latency_fail_count": 28,
+        "latency_fail_rate": 0.933,
         "latency_fail_ci_95": [
-          0.886,
-          1.0
+          0.787,
+          0.982
         ],
-        "latency_warn_count": 0,
-        "latency_warn_rate": 0.0,
+        "latency_warn_count": 2,
+        "latency_warn_rate": 0.067,
         "latency_warn_ci_95": [
-          0.0,
-          0.114
+          0.018,
+          0.213
         ],
         "per_group_acc_detected": 7,
         "per_group_acc_rate": 0.233,
@@ -2931,17 +2931,17 @@
           0.274,
           0.608
         ],
-        "warn_only_count": 10,
-        "warn_only_rate": 0.333,
+        "warn_only_count": 11,
+        "warn_only_rate": 0.367,
         "warn_only_ci_95": [
-          0.192,
-          0.512
+          0.219,
+          0.545
         ],
-        "flagged_count": 23,
-        "flagged_rate": 0.767,
+        "flagged_count": 24,
+        "flagged_rate": 0.8,
         "flagged_ci_95": [
-          0.591,
-          0.882
+          0.627,
+          0.905
         ],
         "quality_fail_count": 13,
         "quality_fail_rate": 0.433,
@@ -2949,11 +2949,11 @@
           0.274,
           0.608
         ],
-        "quality_warn_only_count": 10,
-        "quality_warn_only_rate": 0.333,
+        "quality_warn_only_count": 11,
+        "quality_warn_only_rate": 0.367,
         "quality_warn_only_ci_95": [
-          0.192,
-          0.512
+          0.219,
+          0.545
         ],
         "latency_fail_count": 0,
         "latency_fail_rate": 0.0,
@@ -2961,11 +2961,11 @@
           0.0,
           0.114
         ],
-        "latency_warn_count": 0,
-        "latency_warn_rate": 0.0,
+        "latency_warn_count": 1,
+        "latency_warn_rate": 0.033,
         "latency_warn_ci_95": [
-          0.0,
-          0.114
+          0.006,
+          0.167
         ],
         "per_group_acc_detected": 8,
         "per_group_acc_rate": 0.267,
@@ -3453,82 +3453,81 @@
           0.004,
           0.013
         ],
-        "warn_count": 132,
-        "warn_rate": 0.098,
+        "warn_count": 127,
+        "warn_rate": 0.094,
         "warn_ci_95": [
-          0.083,
-          0.115
+          0.08,
+          0.111
         ],
-        "flagged_count": 141,
-        "flagged_rate": 0.104,
+        "flagged_count": 136,
+        "flagged_rate": 0.101,
         "flagged_ci_95": [
-          0.089,
-          0.122
+          0.086,
+          0.118
         ]
       },
       {
         "check": "fairness",
         "n_trials": 1350,
-        "fail_count": 45,
-        "fail_rate": 0.033,
+        "fail_count": 47,
+        "fail_rate": 0.035,
         "fail_ci_95": [
-          0.025,
-          0.044
+          0.026,
+          0.046
         ],
-        "warn_count": 188,
-        "warn_rate": 0.139,
+        "warn_count": 190,
+        "warn_rate": 0.141,
         "warn_ci_95": [
-          0.122,
-          0.159
+          0.123,
+          0.16
         ],
-        "flagged_count": 233,
-        "flagged_rate": 0.173,
+        "flagged_count": 237,
+        "flagged_rate": 0.176,
         "flagged_ci_95": [
-          0.153,
-          0.194
+          0.156,
+          0.197
         ]
       },
       {
         "check": "budgets",
         "n_trials": 1350,
-        "fail_count": 135,
-        "fail_rate": 0.1,
+        "fail_count": 139,
+        "fail_rate": 0.103,
         "fail_ci_95": [
-          0.085,
-          0.117
+          0.088,
+          0.12
         ],
-        "warn_count": 20,
-        "warn_rate": 0.015,
+        "warn_count": 15,
+        "warn_rate": 0.011,
         "warn_ci_95": [
-          0.01,
-          0.023
+          0.007,
+          0.018
         ],
-        "flagged_count": 155,
-        "flagged_rate": 0.115,
+        "flagged_count": 154,
+        "flagged_rate": 0.114,
         "flagged_ci_95": [
-          0.099,
-          0.133
+          0.098,
+          0.132
         ]
       }
     ],
     "algo_swap_fairness_metrics": {
       "n_trials": 300,
-      "n_fail": 38,
-      "n_warn": 116,
+      "n_fail": 40,
+      "n_warn": 118,
       "fail_metrics": {
-        "equal_opportunity_diff": 30,
-        "equalized_odds_diff": 28,
+        "equal_opportunity_diff": 31,
+        "equalized_odds_diff": 27,
         "demographic_parity_diff": 23
       },
       "warn_metrics": {
-        "demographic_parity_diff": 17,
-        "selection_rate_shift": 110,
-        "equal_opportunity_diff": 1
+        "demographic_parity_diff": 18,
+        "selection_rate_shift": 109
       }
     }
   },
   "held_out_validation": {
-    "commit_hash": "cb395e1",
+    "commit_hash": "f40f0e7",
     "n_seeds": 30,
     "seed_range": "13000..13029",
     "seeds": [
@@ -3674,13 +3673,13 @@
         "fault": "fairness_threshold_shift",
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
-        "detected_fail": 1,
-        "detected_warn": 29,
+        "detected_fail": 3,
+        "detected_warn": 27,
         "detected_total": 30,
-        "fail_rate": 0.033,
+        "fail_rate": 0.1,
         "fail_ci_95": [
-          0.006,
-          0.167
+          0.035,
+          0.256
         ],
         "detection_rate": 1.0,
         "ci_95": [
@@ -3723,18 +3722,18 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 28,
-        "detected_warn": 0,
-        "detected_total": 28,
-        "fail_rate": 0.933,
+        "detected_fail": 29,
+        "detected_warn": 1,
+        "detected_total": 30,
+        "fail_rate": 0.967,
         "fail_ci_95": [
-          0.787,
-          0.982
+          0.833,
+          0.994
         ],
-        "detection_rate": 0.933,
+        "detection_rate": 1.0,
         "ci_95": [
-          0.787,
-          0.982
+          0.886,
+          1.0
         ],
         "baseline_detected": 0,
         "baseline_rate": 0.0,
@@ -3968,13 +3967,13 @@
         "fault": "cohort_feature_corruption",
         "fault_label": "`cohort_feature_corruption` (2\u03c3 cohort noise)",
         "n_trials": 30,
-        "detected_fail": 7,
-        "detected_warn": 6,
+        "detected_fail": 8,
+        "detected_warn": 5,
         "detected_total": 13,
-        "fail_rate": 0.233,
+        "fail_rate": 0.267,
         "fail_ci_95": [
-          0.118,
-          0.409
+          0.142,
+          0.444
         ],
         "detection_rate": 0.433,
         "ci_95": [
@@ -4066,13 +4065,13 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 15,
-        "detected_warn": 15,
+        "detected_fail": 17,
+        "detected_warn": 13,
         "detected_total": 30,
-        "fail_rate": 0.5,
+        "fail_rate": 0.567,
         "fail_ci_95": [
-          0.332,
-          0.668
+          0.392,
+          0.726
         ],
         "detection_rate": 1.0,
         "ci_95": [
@@ -4311,13 +4310,13 @@
         "fault": "cohort_feature_corruption",
         "fault_label": "`cohort_feature_corruption` (2\u03c3 cohort noise)",
         "n_trials": 30,
-        "detected_fail": 26,
-        "detected_warn": 3,
+        "detected_fail": 27,
+        "detected_warn": 2,
         "detected_total": 29,
-        "fail_rate": 0.867,
+        "fail_rate": 0.9,
         "fail_ci_95": [
-          0.703,
-          0.947
+          0.744,
+          0.965
         ],
         "detection_rate": 0.967,
         "ci_95": [
@@ -4361,17 +4360,17 @@
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
         "detected_fail": 2,
-        "detected_warn": 6,
-        "detected_total": 8,
+        "detected_warn": 5,
+        "detected_total": 7,
         "fail_rate": 0.067,
         "fail_ci_95": [
           0.018,
           0.213
         ],
-        "detection_rate": 0.267,
+        "detection_rate": 0.233,
         "ci_95": [
-          0.142,
-          0.444
+          0.118,
+          0.409
         ],
         "baseline_detected": 0,
         "baseline_rate": 0.0,
@@ -4654,13 +4653,13 @@
         "fault": "cohort_feature_corruption",
         "fault_label": "`cohort_feature_corruption` (2\u03c3 cohort noise)",
         "n_trials": 30,
-        "detected_fail": 29,
-        "detected_warn": 1,
+        "detected_fail": 28,
+        "detected_warn": 2,
         "detected_total": 30,
-        "fail_rate": 0.967,
+        "fail_rate": 0.933,
         "fail_ci_95": [
-          0.833,
-          0.994
+          0.787,
+          0.982
         ],
         "detection_rate": 1.0,
         "ci_95": [
@@ -4703,13 +4702,13 @@
         "fault": "fairness_threshold_shift",
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
-        "detected_fail": 12,
-        "detected_warn": 17,
+        "detected_fail": 13,
+        "detected_warn": 16,
         "detected_total": 29,
-        "fail_rate": 0.4,
+        "fail_rate": 0.433,
         "fail_ci_95": [
-          0.246,
-          0.577
+          0.274,
+          0.608
         ],
         "detection_rate": 0.967,
         "ci_95": [
@@ -4752,13 +4751,13 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 11,
-        "detected_warn": 17,
+        "detected_fail": 12,
+        "detected_warn": 16,
         "detected_total": 28,
-        "fail_rate": 0.367,
+        "fail_rate": 0.4,
         "fail_ci_95": [
-          0.219,
-          0.545
+          0.246,
+          0.577
         ],
         "detection_rate": 0.933,
         "ci_95": [
@@ -5290,7 +5289,7 @@
   },
   "public_fairness_benchmark": {
     "command": "python scripts/bench_public.py --n-seeds 30 --start-seed 13000",
-    "commit_hash": "cb395e1",
+    "commit_hash": "f40f0e7",
     "n_seeds": 30,
     "seed_range": "13000..13029",
     "seeds": [
@@ -5340,13 +5339,13 @@
         "fault": "fairness_threshold_shift",
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
-        "detected_fail": 1,
-        "detected_warn": 29,
+        "detected_fail": 3,
+        "detected_warn": 27,
         "detected_total": 30,
-        "fail_rate": 0.033,
+        "fail_rate": 0.1,
         "fail_ci_95": [
-          0.006,
-          0.167
+          0.035,
+          0.256
         ],
         "detection_rate": 1.0,
         "ci_95": [
@@ -5383,18 +5382,18 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 28,
-        "detected_warn": 0,
-        "detected_total": 28,
-        "fail_rate": 0.933,
+        "detected_fail": 29,
+        "detected_warn": 1,
+        "detected_total": 30,
+        "fail_rate": 0.967,
         "fail_ci_95": [
-          0.787,
-          0.982
+          0.833,
+          0.994
         ],
-        "detection_rate": 0.933,
+        "detection_rate": 1.0,
         "ci_95": [
-          0.787,
-          0.982
+          0.886,
+          1.0
         ],
         "baseline_detected": 0,
         "baseline_rate": 0.0,
@@ -5598,13 +5597,13 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 13,
-        "detected_warn": 17,
+        "detected_fail": 15,
+        "detected_warn": 15,
         "detected_total": 30,
-        "fail_rate": 0.433,
+        "fail_rate": 0.5,
         "fail_ci_95": [
-          0.274,
-          0.608
+          0.332,
+          0.668
         ],
         "detection_rate": 1.0,
         "ci_95": [
@@ -5771,17 +5770,17 @@
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
         "detected_fail": 2,
-        "detected_warn": 6,
-        "detected_total": 8,
+        "detected_warn": 5,
+        "detected_total": 7,
         "fail_rate": 0.067,
         "fail_ci_95": [
           0.018,
           0.213
         ],
-        "detection_rate": 0.267,
+        "detection_rate": 0.233,
         "ci_95": [
-          0.142,
-          0.444
+          0.118,
+          0.409
         ],
         "baseline_detected": 0,
         "baseline_rate": 0.0,
@@ -5985,13 +5984,13 @@
         "fault": "fairness_threshold_shift",
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
-        "detected_fail": 12,
-        "detected_warn": 17,
+        "detected_fail": 13,
+        "detected_warn": 16,
         "detected_total": 29,
-        "fail_rate": 0.4,
+        "fail_rate": 0.433,
         "fail_ci_95": [
-          0.246,
-          0.577
+          0.274,
+          0.608
         ],
         "detection_rate": 0.967,
         "ci_95": [
@@ -6028,13 +6027,13 @@
         "fault": "fairness_threshold_shift_hi",
         "fault_label": "`fairness_threshold_shift_hi` (`\u03c4=0.75`)",
         "n_trials": 30,
-        "detected_fail": 11,
-        "detected_warn": 17,
+        "detected_fail": 12,
+        "detected_warn": 16,
         "detected_total": 28,
-        "fail_rate": 0.367,
+        "fail_rate": 0.4,
         "fail_ci_95": [
-          0.219,
-          0.545
+          0.246,
+          0.577
         ],
         "detection_rate": 0.933,
         "ci_95": [
@@ -6200,13 +6199,13 @@
         "fault": "fairness_threshold_shift",
         "fault_label": "`fairness_threshold_shift` (`\u03c4=0.25`)",
         "n_trials": 30,
-        "detected_fail": 16,
-        "detected_warn": 14,
+        "detected_fail": 17,
+        "detected_warn": 13,
         "detected_total": 30,
-        "fail_rate": 0.533,
+        "fail_rate": 0.567,
         "fail_ci_95": [
-          0.361,
-          0.698
+          0.392,
+          0.726
         ],
         "detection_rate": 1.0,
         "ci_95": [
