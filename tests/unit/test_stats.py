@@ -361,6 +361,55 @@ class TestEqualizedOddsAndCalibration:
         assert boot.ci_lower > 0.15
         assert boot.p_value == 0.0
 
+    def test_paired_bootstrap_gap_ci_cell_count_matches_row_resampling(self) -> None:
+        """Cell-count multinomial gap bootstrap matches naive row-level resampling across all 4 metrics."""
+        rng = np.random.RandomState(7)
+        n = 1500
+        protected = rng.choice(["male", "female"], size=n, p=[0.55, 0.45])
+        y_true = rng.binomial(1, 0.25, size=n)
+        champ_pred = rng.binomial(1, 0.25, size=n)
+        cand_pred = champ_pred.copy()
+        fem_pos = (protected == "female") & (y_true == 1)
+        cand_pred[fem_pos] = rng.binomial(1, 0.05, size=int(np.sum(fem_pos)))
+        champ_prob = np.where(protected == "female", 0.25, 0.25) + rng.normal(0, 0.02, n)
+        cand_prob = np.where(protected == "female", 0.40, 0.25) + rng.normal(0, 0.02, n)
+
+        def naive_gap_ci(
+            y: np.ndarray, a: np.ndarray, b: np.ndarray, metric: str, n_boot: int = 1000
+        ) -> tuple[float, float]:
+            r = np.random.RandomState(99)
+            idx = r.randint(0, n, size=(n_boot, n))
+            diffs = np.empty(n_boot)
+            for k in range(n_boot):
+                ii = idx[k]
+                if metric == "demographic_parity_diff":
+                    ga = demographic_parity_diff(a[ii].astype(int), protected[ii])
+                    gb = demographic_parity_diff(b[ii].astype(int), protected[ii])
+                elif metric == "equal_opportunity_diff":
+                    ga = equal_opportunity_diff(y[ii], a[ii].astype(int), protected[ii])
+                    gb = equal_opportunity_diff(y[ii], b[ii].astype(int), protected[ii])
+                elif metric == "equalized_odds_diff":
+                    ga = equalized_odds_diff(y[ii], a[ii].astype(int), protected[ii])
+                    gb = equalized_odds_diff(y[ii], b[ii].astype(int), protected[ii])
+                else:
+                    ga = calibration_gap_diff(y[ii], a[ii], protected[ii])
+                    gb = calibration_gap_diff(y[ii], b[ii], protected[ii])
+                diffs[k] = gb - ga
+            return float(np.percentile(diffs, 2.5)), float(np.percentile(diffs, 97.5))
+
+        for metric, a_s, b_s in (
+            ("demographic_parity_diff", champ_pred, cand_pred),
+            ("equal_opportunity_diff", champ_pred, cand_pred),
+            ("equalized_odds_diff", champ_pred, cand_pred),
+            ("calibration_gap_diff", champ_prob, cand_prob),
+        ):
+            fast = paired_bootstrap_gap_ci(
+                y_true, a_s, b_s, protected, metric=metric, n_bootstrap=1000, seed=42
+            )
+            lo_ref, hi_ref = naive_gap_ci(y_true, a_s, b_s, metric, n_boot=1000)
+            assert abs(fast.ci_lower - lo_ref) < 0.015, (metric, fast, lo_ref)
+            assert abs(fast.ci_upper - hi_ref) < 0.015, (metric, fast, hi_ref)
+
     def test_paired_bootstrap_median_ratio_ci(self) -> None:
         """Paired bootstrap median ratio CI captures slowdown and cancels shared jitter."""
         champ = np.array([1.0, 1.1, 0.9, 1.0, 1.2, 1.0, 1.1, 0.95, 1.05, 1.0])

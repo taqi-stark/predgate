@@ -200,16 +200,12 @@ def test_loader_and_lineage_functions(tmp_path: Path, monkeypatch: pytest.Monkey
     assert get_dvc_hash(dvc_file) == "deadbeef1234"
     assert get_dvc_hash(tmp_path / "missing.dvc") == ""
 
-    # File hash, git sha, package versions
+    # File hash, git sha, package versions (via importlib.metadata, no subprocess)
     h = compute_file_hash(cfg.data.train)
     assert len(h) == 64
     assert isinstance(get_git_sha(), str)
-    monkeypatch.setattr(
-        "subprocess.run",
-        lambda *a, **kw: MagicMock(stdout="pytest==8.0.0\nruff==0.5.0\n", returncode=0),
-    )
     pkgs = get_package_versions()
-    assert pkgs.get("pytest") == "8.0.0"
+    assert "numpy" in pkgs and "scikit-learn" in pkgs
 
     # Import entrypoint from file and stdlib module
     fn = import_entrypoint(cfg.model.entrypoint)

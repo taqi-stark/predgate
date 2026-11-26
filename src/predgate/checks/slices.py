@@ -9,9 +9,12 @@ Gating rules:
   (statistically confident regression beyond the allowed drop).
 - WARN when the point drop exceeds ``max_drop`` but the interval includes values
   at or below ``max_drop``.
-- Mark any slice whose CI width exceeds ``max_ci_width`` as ``inconclusive``
-  in details and reports; when ``on_inconclusive == "warn"`` (default),
-  inconclusive slices also elevate an otherwise-passing check to ``WARN``.
+- Mark a slice as ``inconclusive`` only when its CI width exceeds ``max_ci_width``
+  AND the interval straddles ``max_drop`` (``ci_lower <= max_drop < ci_upper``).
+  A slice whose CI lies entirely beyond ``max_drop`` (``ci_lower > max_drop``) is
+  a conclusive regression and is not listed as inconclusive. When
+  ``on_inconclusive == "warn"`` (default), inconclusive slices elevate an
+  otherwise-passing check to ``WARN``.
 """
 
 from __future__ import annotations
@@ -120,8 +123,13 @@ def run_slices_check(
 
             champ_metric = float(metric_fn(y_slice, champ_slice))
             cand_metric = float(metric_fn(y_slice, cand_slice))
-            ci_width = float(bootstrap.ci_upper - bootstrap.ci_lower)
-            is_inconclusive = ci_width > config.max_ci_width
+            point_drop = round(bootstrap.point_estimate, 4)
+            ci_lower = round(bootstrap.ci_lower, 4)
+            ci_upper = round(bootstrap.ci_upper, 4)
+            ci_width = round(bootstrap.ci_upper - bootstrap.ci_lower, 4)
+            is_inconclusive = (
+                ci_width > config.max_ci_width and ci_lower <= config.max_drop < ci_upper
+            )
 
             slice_results.append(
                 {
@@ -131,10 +139,10 @@ def run_slices_check(
                     "n_rows": n_rows,
                     "champion_metric": round(champ_metric, 4),
                     "candidate_metric": round(cand_metric, 4),
-                    "diff": round(bootstrap.point_estimate, 4),
-                    "ci_lower": round(bootstrap.ci_lower, 4),
-                    "ci_upper": round(bootstrap.ci_upper, 4),
-                    "ci_width": round(ci_width, 4),
+                    "diff": point_drop,
+                    "ci_lower": ci_lower,
+                    "ci_upper": ci_upper,
+                    "ci_width": ci_width,
                     "inconclusive": is_inconclusive,
                     "p_value": round(bootstrap.p_value, 4),
                 }
@@ -168,6 +176,7 @@ def run_slices_check(
             )
             inconclusive_notes.append(
                 f"inconclusive interval on '{sr['slice']}' (n={sr['n_rows']}, "
+                f"drop {sr['diff']:+.3f}, "
                 f"95% CI [{sr['ci_lower']:+.3f}, {sr['ci_upper']:+.3f}], "
                 f"width={sr['ci_width']:.3f} > {config.max_ci_width:.3f})"
             )
@@ -178,15 +187,15 @@ def run_slices_check(
             sr["verdict"] = "fail"
             has_fail = True
             failing_slices.append(
-                f"{sr['slice']} {config.metric} -{sr['diff']:.2f} "
-                f"(95% CI {sr['ci_lower']:.2f} to {sr['ci_upper']:.2f})"
+                f"{sr['slice']} {config.metric} drop {sr['diff']:+.3f} "
+                f"(95% CI [{sr['ci_lower']:+.3f}, {sr['ci_upper']:+.3f}])"
             )
         elif sr["diff"] > config.max_drop:
             sr["verdict"] = "warn"
             has_warn = True
             warning_slices.append(
-                f"{sr['slice']} {config.metric} -{sr['diff']:.2f} "
-                f"(95% CI {sr['ci_lower']:.2f} to {sr['ci_upper']:.2f})"
+                f"{sr['slice']} {config.metric} drop {sr['diff']:+.3f} "
+                f"(95% CI [{sr['ci_lower']:+.3f}, {sr['ci_upper']:+.3f}])"
             )
         else:
             sr["verdict"] = "pass"

@@ -222,29 +222,15 @@ _SCENARIO_MODELS_PY = textwrap.dedent("""\
         return pipe
 
 
-    class NorthDegradedModel:
-        \"\"\"Deliberately misclassifies region=North rows to demonstrate real slice regression.\"\"\"
-
-        def __init__(self, base_model: Pipeline) -> None:
-            self.base_model = base_model
-
-        def predict(self, X: pd.DataFrame) -> np.ndarray:
-            preds = np.asarray(self.base_model.predict(X), dtype=int).copy()
-            if "region" in X.columns:
-                north_mask = X["region"].astype(str).values == "North"
-                preds[north_mask] = 1 - preds[north_mask]
-            return preds
-
-        def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-            probs = np.asarray(self.base_model.predict_proba(X), dtype=float).copy()
-            if "region" in X.columns:
-                north_mask = X["region"].astype(str).values == "North"
-                probs[north_mask] = 1.0 - probs[north_mask]
-            return probs
-
-
-    def build_north_degraded(X_train: pd.DataFrame, y_train: pd.Series, seed: int = 42) -> NorthDegradedModel:
-        return NorthDegradedModel(build_baseline(X_train, y_train, seed=seed))
+    def build_north_degraded(X_train: pd.DataFrame, y_train: pd.Series, seed: int = 42) -> Pipeline:
+        \"\"\"Over-weight positive labels in region=North so North F1 drops moderately (~0.08-0.09, FAIL on slices only).\"\"\"
+        pipe = Pipeline([
+            ("preprocessor", _make_preprocessor(X_train)),
+            ("classifier", GradientBoostingClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, subsample=0.8, random_state=seed)),
+        ])
+        sample_weight = np.where((X_train["region"] == "North") & (y_train == 1), 9.0, 1.0)
+        pipe.fit(X_train, y_train, classifier__sample_weight=sample_weight)
+        return pipe
 
 
     class NoisyWestModel:

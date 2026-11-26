@@ -43,12 +43,12 @@ export default function BenchmarkPage() {
             <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
             <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} domain={[0, 100]} />
             <Tooltip
-              contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                             borderRadius: 8, color: 'var(--text-primary)' }}
+              contentStyle={{ background: '#000000', border: '1px solid var(--border-strong)',
+                             borderRadius: 4, color: 'var(--text-primary)' }}
             />
             <Legend />
-            <Bar dataKey="PredGate" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Baseline" fill="#6b7280" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="PredGate" fill="#ffffff" radius={[2, 2, 0, 0]} />
+            <Bar dataKey="Baseline" fill="#52525b" radius={[2, 2, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -70,7 +70,7 @@ export default function BenchmarkPage() {
 
             return (
               <tr key={fault}>
-                <td style={{ fontWeight: 600 }}>{fault}</td>
+                <td className="mono" style={{ fontWeight: 500 }}>{fault}</td>
                 <td style={{ color: 'var(--text-secondary)' }}>{s.description}</td>
                 <td className="mono">
                   {(s.predgate_detection_rate * 100).toFixed(0)}%
@@ -83,7 +83,7 @@ export default function BenchmarkPage() {
                 <td className="mono">{s.n_trials}</td>
                 <td>
                   {mgWins
-                    ? <span style={{ color: 'var(--pass)' }}>✅ PredGate</span>
+                    ? <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>PredGate</span>
                     : <span style={{ color: 'var(--text-muted)' }}>Baseline</span>
                   }
                 </td>

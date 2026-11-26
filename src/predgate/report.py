@@ -109,7 +109,7 @@ def build_pr_comment(
         )
         lines.append("")
         if inconclusive_entries:
-            lines.append("| Slice | N | Point Drop | 95% CI | CI Width | Limit |")
+            lines.append("| Slice | N | Drop | 95% CI (Drop) | CI Width | Limit |")
             lines.append("|---|---|---|---|---|---|")
             for e in inconclusive_entries[:10]:
                 lines.append(
@@ -272,8 +272,8 @@ def build_html_report(
                     f"<td><strong>{e['ci_width']:.3f}</strong> (&gt; {e['max_ci_width']:.2f})</td></tr>"
                 )
             inc_body = (
-                "<table><tr><th>Slice</th><th>N</th><th>Point Drop</th>"
-                f"<th>95% CI</th><th>CI Width</th></tr>{inc_rows}</table>"
+                "<table><tr><th>Slice</th><th>N</th><th>Drop</th>"
+                f"<th>95% CI (Drop)</th><th>CI Width</th></tr>{inc_rows}</table>"
             )
         else:
             inc_body = "<ul>" + "".join(f"<li>{n}</li>" for n in html_inconclusive_notes) + "</ul>"

@@ -211,27 +211,35 @@ def get_git_sha() -> str:
         return ""
 
 
+_CORE_LINEAGE_PACKAGES: tuple[str, ...] = (
+    "predgate",
+    "scikit-learn",
+    "numpy",
+    "pandas",
+    "scipy",
+    "mlflow",
+    "pandera",
+    "pydantic",
+    "fastapi",
+    "dvc",
+)
+
+
 def get_package_versions() -> dict[str, str]:
-    """Get installed package versions via pip freeze.
+    """Get versions of core runtime packages via importlib.metadata (avoids slow pip freeze subprocess).
 
     Returns:
         Dictionary of package_name -> version.
     """
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "freeze"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        versions: dict[str, str] = {}
-        for line in result.stdout.strip().split("\n"):
-            if "==" in line:
-                name, version = line.split("==", 1)
-                versions[name.strip()] = version.strip()
-        return versions
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return {}
+    import importlib.metadata as importlib_metadata
+
+    versions: dict[str, str] = {}
+    for pkg in _CORE_LINEAGE_PACKAGES:
+        try:
+            versions[pkg] = importlib_metadata.version(pkg)
+        except importlib_metadata.PackageNotFoundError:
+            pass
+    return versions
 
 
 def import_entrypoint(entrypoint: str) -> Any:
@@ -331,21 +339,31 @@ def load_candidate_and_champion(
     try:
         import os
 
-        import mlflow
-
         env_uri = os.environ.get("MLFLOW_TRACKING_URI", "").strip()
         active_uri = env_uri or config.mlflow.tracking_uri
-        mlflow.set_tracking_uri(active_uri)
-        client = mlflow.tracking.MlflowClient(active_uri)
-        model_name = config.project
-        try:
-            client.get_model_version_by_alias(model_name, config.champion.mlflow_alias)
-            champion_model = mlflow.sklearn.load_model(
-                f"models:/{model_name}@{config.champion.mlflow_alias}"
-            )
-            is_first_run = False
-        except Exception:
-            is_first_run = True
+
+        # Skip initializing a fresh SQLite MLflow DB when the DB file does not exist yet
+        # (it cannot contain a registered @champion and creating tables takes ~4-10s).
+        skip_mlflow_lookup = False
+        if active_uri.startswith("sqlite:///"):
+            db_path = Path(active_uri[len("sqlite:///") :])
+            if not db_path.exists() or db_path.stat().st_size == 0:
+                skip_mlflow_lookup = True
+
+        if not skip_mlflow_lookup:
+            import mlflow
+
+            mlflow.set_tracking_uri(active_uri)
+            client = mlflow.tracking.MlflowClient(active_uri)
+            model_name = config.project
+            try:
+                client.get_model_version_by_alias(model_name, config.champion.mlflow_alias)
+                champion_model = mlflow.sklearn.load_model(
+                    f"models:/{model_name}@{config.champion.mlflow_alias}"
+                )
+                is_first_run = False
+            except Exception:
+                is_first_run = True
     except ImportError:
         is_first_run = True
 

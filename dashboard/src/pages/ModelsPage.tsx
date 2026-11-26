@@ -49,11 +49,19 @@ export default function ModelsPage() {
             {models.map(m => (
               <tr key={m.version}>
                 <td className="mono">{m.version}</td>
-                <td><a href={`/runs/${m.run_id}`} style={{ color: 'var(--accent)' }}>#{m.run_id}</a></td>
+                <td>
+                  <a
+                    href={`/runs/${m.run_id}`}
+                    className="mono"
+                    style={{ color: 'var(--text-primary)', textDecoration: 'underline', textUnderlineOffset: '3px' }}
+                  >
+                    #{m.run_id}
+                  </a>
+                </td>
                 <td><span className={`status-badge ${m.status}`}>{m.status}</span></td>
                 <td>{m.branch || '—'}</td>
                 <td className="time-ago">{new Date(m.created_at).toLocaleDateString()}</td>
-                <td>{m.is_champion ? <span className="champion-badge">🏆 Champion</span> : '—'}</td>
+                <td>{m.is_champion ? <span className="champion-badge">Champion</span> : '—'}</td>
                 <td>
                   <button className="btn" style={{ marginRight: 8, padding: '4px 10px', fontSize: 12 }}
                           onClick={() => api.promoteRun(m.run_id).then(() => window.location.reload())}>

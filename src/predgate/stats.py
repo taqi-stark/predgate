@@ -555,46 +555,135 @@ def paired_bootstrap_gap_ci(
     point_estimate = float(_point_gap(b_arr) - _point_gap(a_arr))
 
     rng = np.random.RandomState(seed)
-    idx = rng.randint(0, n, size=(n_bootstrap, n))
-    y_boot = y_arr[idx]
-    a_boot = a_arr[idx]
-    b_boot = b_arr[idx]
-    g_Masks = [(prot_arr == g)[idx].astype(np.float64) for g in groups]
+    _, g_idx = np.unique(prot_arr, return_inverse=True)
+    n_groups = len(groups)
 
-    def _boot_gaps(scores_boot: NDArray[np.float64]) -> NDArray[np.float64]:
-        if metric in ("demographic_parity_diff", "calibration_gap_diff"):
-            vals = scores_boot - y_boot if metric == "calibration_gap_diff" else scores_boot
+    is_discrete_binary = (
+        metric in ("demographic_parity_diff", "equal_opportunity_diff", "equalized_odds_diff")
+        and bool(np.all((y_arr == 0.0) | (y_arr == 1.0)))
+        and bool(np.all((a_arr == 0.0) | (a_arr == 1.0)))
+        and bool(np.all((b_arr == 0.0) | (b_arr == 1.0)))
+    )
+
+    if is_discrete_binary:
+        # Exact cell-count multinomial bootstrap over the <= 8*G joint contingency cells
+        # (group, y_true, champ_pred, cand_pred). Mathematically identical distribution to
+        # row-level resampling in O(n + B * 8G) time and O(B * 8G) memory.
+        y_int = y_arr.astype(np.int64)
+        a_int = a_arr.astype(np.int64)
+        b_int = b_arr.astype(np.int64)
+        cell_code = ((g_idx * 2 + y_int) * 2 + a_int) * 2 + b_int
+        raw_counts = np.bincount(cell_code, minlength=8 * n_groups)
+        nz = np.flatnonzero(raw_counts)
+        cell_probs = raw_counts[nz].astype(np.float64) / float(n)
+
+        boot_counts = rng.multinomial(n, cell_probs, size=n_bootstrap).astype(np.float64)
+
+        cell_b = (nz & 1).astype(np.float64)
+        cell_a = ((nz >> 1) & 1).astype(np.float64)
+        cell_y = (nz >> 2) & 1
+        cell_g = nz >> 3
+
+        g_mat = (cell_g[:, None] == np.arange(n_groups)[None, :]).astype(np.float64)
+
+        if metric == "demographic_parity_diff":
+            n_g = np.maximum(boot_counts @ g_mat, 1e-12)
+            rate_a = (boot_counts @ (g_mat * cell_a[:, None])) / n_g
+            rate_b = (boot_counts @ (g_mat * cell_b[:, None])) / n_g
+            gap_a = np.max(rate_a, axis=1) - np.min(rate_a, axis=1)
+            gap_b = np.max(rate_b, axis=1) - np.min(rate_b, axis=1)
+        else:
+            pos_mat = g_mat * (cell_y[:, None] == 1)
+            pos_n = np.maximum(boot_counts @ pos_mat, 1e-12)
+            tpr_a = (boot_counts @ (pos_mat * cell_a[:, None])) / pos_n
+            tpr_b = (boot_counts @ (pos_mat * cell_b[:, None])) / pos_n
+            tpr_gap_a = np.max(tpr_a, axis=1) - np.min(tpr_a, axis=1)
+            tpr_gap_b = np.max(tpr_b, axis=1) - np.min(tpr_b, axis=1)
+            if metric == "equal_opportunity_diff":
+                gap_a = tpr_gap_a
+                gap_b = tpr_gap_b
+            else:
+                neg_mat = g_mat * (cell_y[:, None] == 0)
+                neg_n = np.maximum(boot_counts @ neg_mat, 1e-12)
+                fpr_a = (boot_counts @ (neg_mat * cell_a[:, None])) / neg_n
+                fpr_b = (boot_counts @ (neg_mat * cell_b[:, None])) / neg_n
+                fpr_gap_a = np.max(fpr_a, axis=1) - np.min(fpr_a, axis=1)
+                fpr_gap_b = np.max(fpr_b, axis=1) - np.min(fpr_b, axis=1)
+                gap_a = np.maximum(tpr_gap_a, fpr_gap_a)
+                gap_b = np.maximum(tpr_gap_b, fpr_gap_b)
+    elif metric == "calibration_gap_diff":
+        # Exact paired bootstrap for continuous calibration residuals (a - y, b - y):
+        # First sample exact group totals from Multinomial(n, n_g / n), then resample
+        # within each group (using exact unique-value cell-count multinomial when a group
+        # has <= 256 unique residual pairs, else O(n) streaming resampling with zero (B, n)
+        # dense matrix allocation).
+        da = a_arr - y_arr
+        db = b_arr - y_arr
+        da_groups = [da[g_idx == g] for g in range(n_groups)]
+        db_groups = [db[g_idx == g] for g in range(n_groups)]
+        group_sizes = np.array([len(x) for x in da_groups], dtype=np.float64)
+        boot_n = rng.multinomial(n, group_sizes / float(n), size=n_bootstrap)
+
+        err_a = np.zeros((n_bootstrap, n_groups), dtype=np.float64)
+        err_b = np.zeros((n_bootstrap, n_groups), dtype=np.float64)
+        for g in range(n_groups):
+            da_g = da_groups[g]
+            db_g = db_groups[g]
+            n_g = len(da_g)
+            if n_g == 0:
+                continue
+            ng_draws = boot_n[:, g]
+            # Probe first 512 elements to avoid O(n log n) 2D unique sort on continuous probabilities
+            probe_n = min(n_g, 512)
+            maybe_discrete = (
+                len(np.unique(da_g[:probe_n])) <= 64 and len(np.unique(db_g[:probe_n])) <= 64
+            )
+            uniq_pairs: NDArray[np.float64] | None = None
+            inv_counts: NDArray[np.int_] | None = None
+            if maybe_discrete:
+                pairs = np.column_stack((da_g, db_g))
+                u_p, u_c = np.unique(pairs, axis=0, return_counts=True)
+                if len(u_p) <= 256:
+                    uniq_pairs, inv_counts = u_p, u_c
+            if uniq_pairs is not None and inv_counts is not None:
+                u_probs = inv_counts.astype(np.float64) / float(n_g)
+                u_da = uniq_pairs[:, 0]
+                u_db = uniq_pairs[:, 1]
+                for b_i in range(n_bootstrap):
+                    k = int(ng_draws[b_i])
+                    if k <= 0:
+                        continue
+                    c = rng.multinomial(k, u_probs).astype(np.float64)
+                    err_a[b_i, g] = abs(float(c @ u_da)) / float(k)
+                    err_b[b_i, g] = abs(float(c @ u_db)) / float(k)
+            else:
+                for b_i in range(n_bootstrap):
+                    k = int(ng_draws[b_i])
+                    if k <= 0:
+                        continue
+                    r_idx = rng.randint(0, n_g, size=k)
+                    err_a[b_i, g] = abs(float(np.sum(da_g[r_idx]))) / float(k)
+                    err_b[b_i, g] = abs(float(np.sum(db_g[r_idx]))) / float(k)
+
+        gap_a = np.max(err_a, axis=1) - np.min(err_a, axis=1)
+        gap_b = np.max(err_b, axis=1) - np.min(err_b, axis=1)
+    else:
+        idx = rng.randint(0, n, size=(n_bootstrap, n))
+        a_boot = a_arr[idx]
+        b_boot = b_arr[idx]
+        g_masks = [(prot_arr == g)[idx].astype(np.float64) for g in groups]
+
+        def _boot_gaps(scores_boot: NDArray[np.float64]) -> NDArray[np.float64]:
             rates = []
-            for m in g_Masks:
+            for m in g_masks:
                 denom = np.maximum(np.sum(m, axis=1), 1e-12)
-                r = np.sum(m * vals, axis=1) / denom
-                if metric == "calibration_gap_diff":
-                    r = np.abs(r)
-                rates.append(r)
+                rates.append(np.sum(m * scores_boot, axis=1) / denom)
             stacked = np.vstack(rates)
             return np.max(stacked, axis=0) - np.min(stacked, axis=0)
 
-        # equal_opportunity_diff or equalized_odds_diff
-        tprs = []
-        fprs = []
-        for m in g_Masks:
-            pos_m = m * (y_boot == 1.0)
-            pos_denom = np.maximum(np.sum(pos_m, axis=1), 1e-12)
-            tprs.append(np.sum(pos_m * scores_boot, axis=1) / pos_denom)
-            if metric == "equalized_odds_diff":
-                neg_m = m * (y_boot == 0.0)
-                neg_denom = np.maximum(np.sum(neg_m, axis=1), 1e-12)
-                fprs.append(np.sum(neg_m * scores_boot, axis=1) / neg_denom)
-        tpr_stack = np.vstack(tprs)
-        tpr_gap = np.max(tpr_stack, axis=0) - np.min(tpr_stack, axis=0)
-        if metric == "equal_opportunity_diff":
-            return tpr_gap
-        fpr_stack = np.vstack(fprs)
-        fpr_gap = np.max(fpr_stack, axis=0) - np.min(fpr_stack, axis=0)
-        return np.maximum(tpr_gap, fpr_gap)
+        gap_a = _boot_gaps(a_boot)
+        gap_b = _boot_gaps(b_boot)
 
-    gap_a = _boot_gaps(a_boot)
-    gap_b = _boot_gaps(b_boot)
     diffs = gap_b - gap_a
 
     alpha = 1.0 - confidence

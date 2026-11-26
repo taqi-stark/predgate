@@ -75,49 +75,66 @@ def log_run_to_mlflow(
     mlflow.set_experiment(project)
 
     with mlflow.start_run() as run:
-        # Log parameters
-        mlflow.log_param("seed", seed)
-        mlflow.log_param("verdict", verdict.status)
-        mlflow.log_param("git_sha", lineage_info.get("git_sha", ""))
-
+        # Batch parameters, metrics, and tags to minimize SQLite / HTTP round-trips
+        params: dict[str, Any] = {
+            "seed": seed,
+            "verdict": verdict.status,
+            "git_sha": lineage_info.get("git_sha", ""),
+        }
+        tags: dict[str, str] = {
+            "verdict": verdict.status,
+            "git_sha": str(lineage_info.get("git_sha", "")),
+            "seed": str(seed),
+        }
         dvc_hash = lineage_info.get("dvc_hash", "")
         if dvc_hash:
-            mlflow.log_param("dvc_hash", dvc_hash)
-            mlflow.set_tag("dvc_hash", dvc_hash)
+            params["dvc_hash"] = dvc_hash
+            tags["dvc_hash"] = str(dvc_hash)
+        for dname, dhash in lineage_info.get("data_hashes", {}).items():
+            tags[f"data_hash_{dname}"] = str(dhash)
 
-        # Log metrics
+        mlflow.log_params(params)
+
+        all_metrics: dict[str, float] = {}
         if metrics:
-            mlflow.log_metrics(metrics)
-
-        # Log check results as metrics
+            all_metrics.update({k: float(v) for k, v in metrics.items()})
         for cr in verdict.check_results:
             for key, val in cr.metrics.items():
                 try:
-                    mlflow.log_metric(f"{cr.name}_{key}", float(val))
+                    all_metrics[f"{cr.name}_{key}"] = float(val)
                 except (ValueError, TypeError):
                     pass
+        if all_metrics:
+            mlflow.log_metrics(all_metrics)
 
-        # Log the model
+        # Log the model with explicit pip_requirements to skip MLflow's slow
+        # ~18s subprocess-based environment inference on every local run.
         try:
-            mlflow.sklearn.log_model(model, "model", serialization_format="pickle")
+            import importlib.metadata as importlib_metadata
+
+            pip_reqs: list[str] = []
+            for pkg in ("scikit-learn", "numpy", "pandas", "scipy", "cloudpickle"):
+                try:
+                    pip_reqs.append(f"{pkg}=={importlib_metadata.version(pkg)}")
+                except importlib_metadata.PackageNotFoundError:
+                    pass
+            mlflow.sklearn.log_model(
+                model,
+                "model",
+                serialization_format="pickle",
+                pip_requirements=pip_reqs or None,
+            )
         except Exception as e:
             logger.warning(f"Failed to log model artifact: {e}")
 
-        # Log verdict JSON as artifact
+        # Log verdict JSON and lineage as artifacts
         verdict_json = json.dumps(verdict.to_dict(), indent=2)
         mlflow.log_text(verdict_json, "verdict.json")
 
-        # Log lineage
         lineage_json = json.dumps(lineage_info, indent=2, default=str)
         mlflow.log_text(lineage_json, "lineage.json")
 
-        # Tags
-        mlflow.set_tag("verdict", verdict.status)
-        mlflow.set_tag("git_sha", lineage_info.get("git_sha", ""))
-        mlflow.set_tag("seed", str(seed))
-
-        for dname, dhash in lineage_info.get("data_hashes", {}).items():
-            mlflow.set_tag(f"data_hash_{dname}", dhash)
+        mlflow.set_tags(tags)
 
         return run.info.run_id
 

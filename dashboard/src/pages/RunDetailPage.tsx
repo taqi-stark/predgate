@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, type Run } from '../api';
 
+function fmtSigned(val: number | undefined | null): string {
+  if (val === undefined || val === null || Number.isNaN(val)) return '—';
+  const sign = val >= 0 ? '+' : '';
+  return `${sign}${val.toFixed(3)}`;
+}
+
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -70,15 +76,8 @@ export default function RunDetailPage() {
 
       {/* Model Family Change Banner */}
       {modelFamilyChange?.changed && (
-        <div
-          className="card"
-          style={{
-            borderLeft: '4px solid var(--accent)',
-            background: 'rgba(59, 130, 246, 0.10)',
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+        <div className="banner-section">
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>
             Model family changed: <code>{modelFamilyChange.champion_family}</code> &rarr;{' '}
             <code>{modelFamilyChange.candidate_family}</code>
           </div>
@@ -90,33 +89,26 @@ export default function RunDetailPage() {
 
       {/* Prominent Inconclusive Slices Banner */}
       {hasInconclusive && (
-        <div
-          className="card"
-          style={{
-            borderLeft: '4px solid var(--warn)',
-            background: 'var(--warn-bg)',
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div className="banner-section banner-warn">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <span className="status-badge warn">INCONCLUSIVE SLICES</span>
-            <strong>Wide confidence intervals — a real drop may go undetected</strong>
+            <span style={{ fontWeight: 500 }}>Wide confidence intervals straddling max_drop — a real drop may go undetected</span>
           </div>
           {inconclusiveEntries.length > 0 ? (
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Slice</th><th>N</th><th>Point Drop</th><th>95% CI</th><th>CI Width</th>
+                  <th>Slice</th><th>N</th><th>Drop</th><th>95% CI (Drop)</th><th>CI Width</th>
                 </tr>
               </thead>
               <tbody>
                 {inconclusiveEntries.slice(0, 10).map((e: any, i: number) => (
                   <tr key={i}>
                     <td><code>{e.slice}</code></td>
-                    <td>{e.n_rows}</td>
-                    <td className="mono">{e.diff > 0 ? '+' : ''}{e.diff?.toFixed(3)}</td>
-                    <td className="mono">[{e.ci_lower?.toFixed(3)}, {e.ci_upper?.toFixed(3)}]</td>
-                    <td className="mono" style={{ color: 'var(--warn)', fontWeight: 700 }}>
+                    <td className="mono">{e.n_rows}</td>
+                    <td className="mono">{fmtSigned(e.diff)}</td>
+                    <td className="mono">[{fmtSigned(e.ci_lower)}, {fmtSigned(e.ci_upper)}]</td>
+                    <td className="mono" style={{ color: 'var(--warn)', fontWeight: 600 }}>
                       {e.ci_width?.toFixed(3)} (&gt; {e.max_ci_width?.toFixed(2)})
                     </td>
                   </tr>
@@ -192,25 +184,23 @@ export default function RunDetailPage() {
               <thead>
                 <tr>
                   <th>Slice</th><th>N</th><th>Champion</th><th>Candidate</th>
-                  <th>Diff</th><th>CI</th><th>Width</th><th>Status</th>
+                  <th>Drop</th><th>95% CI (Drop)</th><th>Width</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {activeCheck.details.slices.slice(0, 20).map((s: any, i: number) => (
-                  <tr key={i} style={s.inconclusive ? { background: 'var(--warn-bg)' } : undefined}>
-                    <td>{s.slice}</td>
-                    <td>{s.n_rows}</td>
+                  <tr key={i}>
+                    <td className="mono">{s.slice}</td>
+                    <td className="mono">{s.n_rows}</td>
                     <td className="mono">{s.champion_metric?.toFixed(3)}</td>
                     <td className="mono">{s.candidate_metric?.toFixed(3)}</td>
-                    <td className={`mono ${s.diff > 0 ? 'delta-negative' : 'delta-positive'}`}>
-                      {s.diff > 0 ? '+' : ''}{s.diff?.toFixed(3)}
-                    </td>
-                    <td className="mono">[{s.ci_lower?.toFixed(3)}, {s.ci_upper?.toFixed(3)}]</td>
+                    <td className="mono">{fmtSigned(s.diff)}</td>
+                    <td className="mono">[{fmtSigned(s.ci_lower)}, {fmtSigned(s.ci_upper)}]</td>
                     <td className="mono">{s.ci_width !== undefined ? s.ci_width.toFixed(3) : '—'}</td>
                     <td style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span className={`status-badge ${s.verdict || 'pass'}`}>{s.verdict || 'pass'}</span>
                       {s.inconclusive && (
-                        <span className="status-badge warn" title="Confidence interval width exceeds max_ci_width">
+                        <span className="status-badge warn" title="Confidence interval width exceeds max_ci_width and straddles max_drop">
                           inconclusive
                         </span>
                       )}

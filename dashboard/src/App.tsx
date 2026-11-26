@@ -45,20 +45,20 @@ function App() {
     <BrowserRouter>
       <div className="sidebar">
         <div className="sidebar-logo">
-          <span>⊞ PredGate</span>
+          <span>PredGate</span>
         </div>
         <nav className="sidebar-nav">
           <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} end>
-            📊 Runs
+            Runs
           </NavLink>
           <NavLink to="/models" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            📦 Models
+            Models
           </NavLink>
           <NavLink to="/benchmark" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            🧪 Benchmark
+            Benchmark
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            ⚙️ Settings
+            Settings
           </NavLink>
         </nav>
       </div>
@@ -70,14 +70,14 @@ function App() {
               Project: <strong>credit-risk-demo</strong>
             </span>
             {championVersion && (
-              <span className="champion-badge">🏆 Champion: {championVersion}</span>
+              <span className="champion-badge">Champion: {championVersion}</span>
             )}
           </div>
           <button
             className="theme-toggle"
             onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
           >
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
         </div>
 

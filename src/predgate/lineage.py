@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-from predgate.loader import LineageInfo, compute_file_hash, get_git_sha
+from predgate.loader import LineageInfo, compute_file_hash, get_git_sha, get_package_versions
 
 logger = logging.getLogger(__name__)
 
@@ -46,21 +45,7 @@ def capture_lineage(
         except Exception:
             pass
 
-    # Get package versions
-    package_versions: dict[str, str] = {}
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "freeze"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        for line in result.stdout.strip().split("\n"):
-            if "==" in line:
-                name, ver = line.split("==", 1)
-                package_versions[name.strip()] = ver.strip()
-    except Exception:
-        pass
+    package_versions = get_package_versions()
 
     return LineageInfo(
         git_sha=get_git_sha(),

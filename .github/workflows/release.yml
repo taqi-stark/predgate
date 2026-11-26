@@ -32,7 +32,30 @@ jobs:
       - name: Install package and build tools
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]" build twine
+          pip install -e ".[dev]" build twine packaging
+
+      - name: Verify release tag normalizes to pyproject.toml version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 - <<'PY'
+          import os, sys, tomllib
+          from packaging.version import Version
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          raw_tag = tag[1:] if tag.startswith("v") else tag
+          pyproject_ver = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+
+          norm_tag = Version(raw_tag)
+          norm_pkg = Version(pyproject_ver)
+          print(f"Tag '{tag}' -> PEP 440 '{norm_tag}' | pyproject.toml '{pyproject_ver}' -> '{norm_pkg}'")
+          if norm_tag != norm_pkg:
+              print(
+                  f"::error::Release tag '{tag}' (normalized: {norm_tag}) does not match "
+                  f"pyproject.toml version '{pyproject_ver}' (normalized: {norm_pkg}).",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
 
       - name: Lint & type check
         run: |

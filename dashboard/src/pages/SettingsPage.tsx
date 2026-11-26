@@ -128,7 +128,7 @@ export default function SettingsPage() {
         <div className="card-title">Enabled Checks</div>
         {['data_contract', 'drift', 'slices', 'behavioral', 'budgets', 'fairness'].map(check => (
           <label key={check} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, cursor: 'pointer' }}>
-            <input type="checkbox" defaultChecked style={{ accentColor: 'var(--accent)' }} />
+            <input type="checkbox" defaultChecked style={{ accentColor: 'var(--text-primary)' }} />
             <span>{check.replace('_', ' ')}</span>
           </label>
         ))}

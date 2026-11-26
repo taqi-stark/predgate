@@ -470,6 +470,106 @@ def test_slices_check_noisy_small_slice_near_zero_warn_and_inconclusive() -> Non
     assert "inconclusive" in res_mixed.summary
 
 
+def test_slices_inconclusive_straddling_and_consistent_drop_signs() -> None:
+    """Inconclusive requires BOTH wide CI (> max_ci_width) AND straddling max_drop
+    (ci_lower <= max_drop < ci_upper), and drop signs must match across summary, PR comment, and HTML.
+    """
+    from predgate.report import build_html_report, build_pr_comment
+    from predgate.verdict import compute_verdict
+
+    class FixedPredModel:
+        def __init__(self, preds: np.ndarray) -> None:
+            self._preds = preds
+
+        def predict(self, X: pd.DataFrame) -> np.ndarray:
+            return self._preds[X["idx"].values]
+
+    cfg = SliceConfig(
+        enabled=True,
+        metric="accuracy",
+        by=["region"],
+        min_slice_size=20,
+        max_drop=0.03,
+        max_ci_width=0.10,
+        on_inconclusive="warn",
+        confidence=0.95,
+        n_bootstrap=500,
+    )
+
+    # Case 1: Clear regression with WIDE CI (n=60, 20 errors on candidate vs 0 on champion ->
+    # drop ~+0.33, ci_lower >> 0.03, ci_width > 0.10). Must be conclusive FAIL, NOT inconclusive.
+    y1 = np.array([0, 1] * 30)
+    df1 = pd.DataFrame({"region": ["North"] * 60, "idx": np.arange(60), "default": y1})
+    champ1 = y1.copy()
+    cand1 = y1.copy()
+    cand1[:20] = 1 - cand1[:20]
+    res1 = run_slices_check(
+        df1, "default", FixedPredModel(champ1), FixedPredModel(cand1), cfg, seed=42
+    )
+    sr1 = res1.details["slices"][0]
+    assert res1.status == "fail"
+    assert sr1["verdict"] == "fail"
+    assert sr1["ci_width"] > 0.10
+    assert sr1["ci_lower"] > 0.03
+    assert sr1["inconclusive"] is False
+    assert res1.metrics["n_inconclusive_slices"] == 0.0
+    assert res1.details["inconclusive_entries"] == []
+    # Consistent positive drop sign in summary (never "-0.33 (95% CI 0.22 to 0.45)")
+    assert (
+        f"drop +{sr1['diff']:.3f} (95% CI [+{sr1['ci_lower']:.3f}, +{sr1['ci_upper']:.3f}])"
+        in res1.summary
+    )
+    pr1 = build_pr_comment(compute_verdict([res1]))
+    html1 = build_html_report(compute_verdict([res1]))
+    assert "Inconclusive Slices" not in pr1
+    assert "Inconclusive Slices" not in html1
+
+    # Case 2: Straddling wide CI (n=40, 3 swapped errors -> diff=0.0, ci_lower <= 0.03 < ci_upper,
+    # ci_width > 0.10). Must be marked inconclusive=True and surfaced with consistent drop signs.
+    y2 = np.array([0, 1] * 20)
+    df2 = pd.DataFrame({"region": ["West"] * 40, "idx": np.arange(40), "default": y2})
+    champ2 = y2.copy()
+    champ2[:3] = 1 - champ2[:3]
+    cand2 = y2.copy()
+    cand2[3:6] = 1 - cand2[3:6]
+    res2 = run_slices_check(
+        df2, "default", FixedPredModel(champ2), FixedPredModel(cand2), cfg, seed=42
+    )
+    sr2 = res2.details["slices"][0]
+    assert sr2["ci_width"] > 0.10
+    assert sr2["ci_lower"] <= 0.03 < sr2["ci_upper"]
+    assert sr2["inconclusive"] is True
+    assert res2.status == "warn"
+    assert res2.metrics["n_inconclusive_slices"] == 1.0
+    pr2 = build_pr_comment(compute_verdict([res2]))
+    html2 = build_html_report(compute_verdict([res2]))
+    expected_ci = f"[{sr2['ci_lower']:+.3f}, {sr2['ci_upper']:+.3f}]"
+    assert "| Slice | N | Drop | 95% CI (Drop) | CI Width | Limit |" in pr2
+    assert f"{sr2['diff']:+.3f}" in pr2 and expected_ci in pr2
+    assert expected_ci in html2
+
+    # Case 3: Narrow CI (n=1000, candidate drops 35 rows -> diff=0.035 straddling 0.03,
+    # ci_width <= 0.10). Must NOT be marked inconclusive even though it straddles max_drop.
+    y3 = np.array([0, 1] * 500)
+    df3 = pd.DataFrame({"region": ["South"] * 1000, "idx": np.arange(1000), "default": y3})
+    champ3 = y3.copy()
+    cand3 = y3.copy()
+    cand3[:35] = 1 - cand3[:35]
+    res3 = run_slices_check(
+        df3, "default", FixedPredModel(champ3), FixedPredModel(cand3), cfg, seed=42
+    )
+    sr3 = res3.details["slices"][0]
+    assert sr3["ci_width"] <= 0.10
+    assert sr3["ci_lower"] <= 0.03 < sr3["ci_upper"]
+    assert sr3["inconclusive"] is False
+    assert res3.status == "warn"
+    assert res3.metrics["n_inconclusive_slices"] == 0.0
+    assert (
+        f"drop +{sr3['diff']:.3f} (95% CI [+{sr3['ci_lower']:.3f}, +{sr3['ci_upper']:.3f}])"
+        in res3.summary
+    )
+
+
 def test_budgets_check_fail_latency() -> None:
     df = pd.DataFrame({"income": [50000.0], "default": [0]})
 

@@ -264,3 +264,18 @@ def test_unverified_bare_pickle_and_empty_dvc_sha_fail_closed(
     (tmp_path / "champion.dvc").write_text("outs:\n- md5: deadbeef\n  path: champion\n")
     with pytest.raises(ValueError, match="SHA-256 mismatch against champion.dvc"):
         verify_champion_integrity(baseline_dir=champ_dir, dvc_path=tmp_path / "champion.dvc")
+
+
+def test_release_workflow_verifies_pep440_tag_matches_pyproject() -> None:
+    """release.yml must verify that the pushed tag normalizes to pyproject.toml version."""
+    import tomllib
+
+    from packaging.version import Version
+
+    release_wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "Verify release tag normalizes to pyproject.toml version" in release_wf
+    assert "packaging.version" in release_wf
+
+    pyproject_ver = tomllib.load((REPO_ROOT / "pyproject.toml").open("rb"))["project"]["version"]
+    assert Version("v0.1.0-alpha".lstrip("v")) == Version(pyproject_ver)
+    assert Version("v0.2.0".lstrip("v")) != Version(pyproject_ver)
