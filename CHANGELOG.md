@@ -14,6 +14,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Environment diagnostics**: `predgate doctor` verifying Python version, git, DVC, MLflow, config schema, model entrypoint, Pandera schema import, and dataset paths with actionable fixes.
 - **Fail-closed champion integrity & RBAC**: Base-branch pinned SHA-256 verification before unpickling, GitHub Branch Protection + `.github/CODEOWNERS`, SHA-256 hashed bearer tokens with role checks (`engineer`, `reviewer`, `admin`), and append-only `/audit` log.
 - **Documentation & adoption assets**: `docs/power.md`, `docs/performance.md`, `docs/benchmark.md` (with 5-dataset development disclosure, exact Evidently `0.7.23` config, and reproduction commands), `examples/minimal/`, `examples/github-workflow/`, MkDocs Material config, OIDC Trusted Publishing release workflow, and `scripts/check_benchmark_fresh.sh`.
-
-### Changed
-- Renamed package and CLI from `ModelGate` (`modelgate`) to `PredGate` (`predgate`) because `modelgate` is already taken on PyPI (see [`MIGRATION.md`](MIGRATION.md)).

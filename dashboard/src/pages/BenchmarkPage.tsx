@@ -64,7 +64,7 @@ export default function BenchmarkPage() {
         <tbody>
           {Object.entries(data.summary).map(([fault, s]: [string, any]) => {
             const isNoop = fault === 'noop';
-            const mgWins = isNoop
+            const pgWins = isNoop
               ? s.predgate_detection_rate <= s.baseline_detection_rate
               : s.predgate_wins;
 
@@ -82,7 +82,7 @@ export default function BenchmarkPage() {
                 </td>
                 <td className="mono">{s.n_trials}</td>
                 <td>
-                  {mgWins
+                  {pgWins
                     ? <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>PredGate</span>
                     : <span style={{ color: 'var(--text-muted)' }}>Baseline</span>
                   }

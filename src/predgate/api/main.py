@@ -51,11 +51,7 @@ app = FastAPI(
 )
 
 # CORS for dashboard
-_cors_raw = (
-    os.getenv("PREDGATE_CORS_ORIGINS")
-    or os.getenv("MODELGATE_CORS_ORIGINS")
-    or "http://localhost:3000,http://localhost:5173"
-)
+_cors_raw = os.getenv("PREDGATE_CORS_ORIGINS") or "http://localhost:3000,http://localhost:5173"
 _cors_origins = [origin.strip() for origin in _cors_raw.split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,

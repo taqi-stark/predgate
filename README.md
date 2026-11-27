@@ -1,7 +1,5 @@
 # PredGate
 
-> **Renamed from `ModelGate` → `PredGate` (`predgate`)** because `modelgate` is already taken on PyPI. See [MIGRATION.md](MIGRATION.md) for the full package, import, CLI, config, and workflow migration guide.
-
 [![CI](https://github.com/taqi-stark/predgate/actions/workflows/ci.yml/badge.svg)](https://github.com/taqi-stark/predgate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)

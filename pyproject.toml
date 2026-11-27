@@ -79,7 +79,6 @@ include = [
     "/scripts",
     "/README.md",
     "/LICENSE",
-    "/MIGRATION.md",
     "/pyproject.toml",
     "/predgate.yaml",
     "/action.yml",

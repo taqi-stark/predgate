@@ -1102,23 +1102,23 @@ def main() -> None:
     for fault in SYNTHETIC_FAULTS:
         rows = [r for r in synth_records if r["fault_type"] == fault]
         n = len(rows)
-        mg_fail = sum(1 for r in rows if r["predgate_fail"])
-        mg_det = sum(1 for r in rows if r["predgate_detected"])
+        pg_fail = sum(1 for r in rows if r["predgate_fail"])
+        pg_det = sum(1 for r in rows if r["predgate_detected"])
         bl_det = sum(1 for r in rows if r["baseline_detected"])
         pg_acc_det = sum(1 for r in rows if r["per_group_acc_detected"])
         dp_det = sum(1 for r in rows if r["fixed_dp_detected"])
 
-        fail_r, fail_ci = _agg_rate(mg_fail, n)
-        det_r, det_ci = _agg_rate(mg_det, n)
+        fail_r, fail_ci = _agg_rate(pg_fail, n)
+        det_r, det_ci = _agg_rate(pg_det, n)
         bl_r, bl_ci = _agg_rate(bl_det, n)
         pga_r, pga_ci = _agg_rate(pg_acc_det, n)
         dp_r, dp_ci = _agg_rate(dp_det, n)
         entry: dict[str, Any] = {
             "description": FAULT_DESCRIPTIONS[fault],
             "n_trials": n,
-            "mg_fail": mg_fail,
-            "mg_warn": mg_det - mg_fail,
-            "mg_detected": mg_det,
+            "pg_fail": pg_fail,
+            "pg_warn": pg_det - pg_fail,
+            "pg_detected": pg_det,
             "bl_detected": bl_det,
             "per_group_acc_detected": pg_acc_det,
             "fixed_dp_detected": dp_det,
@@ -1143,7 +1143,7 @@ def main() -> None:
             entry["evidently_ci_95"] = ev_ci
         synth_summary[fault] = entry
         print(
-            f"  SYNTH {fault:20s}: FAIL {mg_fail:2d}/{n} | Flag {mg_det:2d}/{n} | "
+            f"  SYNTH {fault:20s}: FAIL {pg_fail:2d}/{n} | Flag {pg_det:2d}/{n} | "
             f"Acc {bl_det:2d}/{n} | GrpAcc {pg_acc_det:2d}/{n} | FixDP {dp_det:2d}/{n}"
             + (f" | Evid {entry['evidently_detected']:2d}/{n}" if ev_py else "")
         )

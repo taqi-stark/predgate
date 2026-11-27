@@ -81,11 +81,8 @@ def create_user(
 
 
 def bootstrap_admin_from_env(session: Session) -> None:
-    """If PREDGATE_ADMIN_TOKEN (or legacy MODELGATE_ADMIN_TOKEN) is set, ensure an admin user exists."""
-    admin_token = (
-        os.getenv("PREDGATE_ADMIN_TOKEN", "").strip()
-        or os.getenv("MODELGATE_ADMIN_TOKEN", "").strip()
-    )
+    """If PREDGATE_ADMIN_TOKEN is set, ensure an admin user exists."""
+    admin_token = os.getenv("PREDGATE_ADMIN_TOKEN", "").strip()
     if not admin_token:
         return
     t_hash = hash_token(admin_token)

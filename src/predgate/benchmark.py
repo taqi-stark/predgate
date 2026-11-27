@@ -509,8 +509,8 @@ def run_benchmark(
         console.print(f"  Running [bold]{fault}[/bold] ({n_seeds} seeds)...", end=" ")
         start = time.time()
 
-        mg_fail = 0
-        mg_detected = 0
+        pg_fail = 0
+        pg_detected = 0
         bl_detected = 0
         pg_acc_detected = 0
         fixed_dp_detected = 0
@@ -520,9 +520,9 @@ def run_benchmark(
                 result = run_single_trial(fault, seed)
                 all_results.append(result)
                 if result.get("predgate_fail", result.get("predgate_status") == "fail"):
-                    mg_fail += 1
+                    pg_fail += 1
                 if result["predgate_detected"]:
-                    mg_detected += 1
+                    pg_detected += 1
                 if result["baseline_detected"]:
                     bl_detected += 1
                 if result.get("per_group_acc_detected"):
@@ -533,43 +533,43 @@ def run_benchmark(
                 console.print(f"[red]Error seed {seed}: {e}[/red]")
 
         elapsed = time.time() - start
-        mg_fail_rate = mg_fail / n_seeds if n_seeds > 0 else 0
-        mg_rate = mg_detected / n_seeds if n_seeds > 0 else 0
+        pg_fail_rate = pg_fail / n_seeds if n_seeds > 0 else 0
+        pg_rate = pg_detected / n_seeds if n_seeds > 0 else 0
         bl_rate = bl_detected / n_seeds if n_seeds > 0 else 0
         pg_acc_rate = pg_acc_detected / n_seeds if n_seeds > 0 else 0
         fixed_dp_rate = fixed_dp_detected / n_seeds if n_seeds > 0 else 0
-        mg_fail_ci = wilson_ci(mg_fail, n_seeds)
-        mg_ci = wilson_ci(mg_detected, n_seeds)
+        pg_fail_ci = wilson_ci(pg_fail, n_seeds)
+        pg_ci = wilson_ci(pg_detected, n_seeds)
         bl_ci = wilson_ci(bl_detected, n_seeds)
         pg_acc_ci = wilson_ci(pg_acc_detected, n_seeds)
         fixed_dp_ci = wilson_ci(fixed_dp_detected, n_seeds)
-        ci_overlap = (mg_ci[0] <= bl_ci[1]) and (bl_ci[0] <= mg_ci[1])
+        ci_overlap = (pg_ci[0] <= bl_ci[1]) and (bl_ci[0] <= pg_ci[1])
 
         summary[fault] = {
             "description": FAULT_DESCRIPTIONS[fault],
             "n_trials": n_seeds,
-            "mg_fail": mg_fail,
-            "mg_warn": mg_detected - mg_fail,
-            "mg_detected": mg_detected,
+            "pg_fail": pg_fail,
+            "pg_warn": pg_detected - pg_fail,
+            "pg_detected": pg_detected,
             "bl_detected": bl_detected,
             "per_group_acc_detected": pg_acc_detected,
             "fixed_dp_detected": fixed_dp_detected,
-            "predgate_fail_rate": round(mg_fail_rate, 3),
-            "predgate_fail_ci_95": [round(mg_fail_ci[0], 3), round(mg_fail_ci[1], 3)],
-            "predgate_detection_rate": round(mg_rate, 3),
+            "predgate_fail_rate": round(pg_fail_rate, 3),
+            "predgate_fail_ci_95": [round(pg_fail_ci[0], 3), round(pg_fail_ci[1], 3)],
+            "predgate_detection_rate": round(pg_rate, 3),
             "baseline_detection_rate": round(bl_rate, 3),
             "per_group_acc_rate": round(pg_acc_rate, 3),
             "fixed_dp_rate": round(fixed_dp_rate, 3),
-            "predgate_ci_95": [round(mg_ci[0], 3), round(mg_ci[1], 3)],
+            "predgate_ci_95": [round(pg_ci[0], 3), round(pg_ci[1], 3)],
             "baseline_ci_95": [round(bl_ci[0], 3), round(bl_ci[1], 3)],
             "per_group_acc_ci_95": [round(pg_acc_ci[0], 3), round(pg_acc_ci[1], 3)],
             "fixed_dp_ci_95": [round(fixed_dp_ci[0], 3), round(fixed_dp_ci[1], 3)],
             "ci_95_overlap": ci_overlap,
-            "predgate_wins": (mg_ci[0] > bl_ci[1]) if fault != "noop" else (mg_ci[1] < bl_ci[0]),
+            "predgate_wins": (pg_ci[0] > bl_ci[1]) if fault != "noop" else (pg_ci[1] < bl_ci[0]),
         }
 
         console.print(
-            f"PG: {mg_fail_rate:.0%} FAIL / {mg_rate:.0%} flagged  BL: {bl_rate:.0%}  ({elapsed:.1f}s)"
+            f"PG: {pg_fail_rate:.0%} FAIL / {pg_rate:.0%} flagged  BL: {bl_rate:.0%}  ({elapsed:.1f}s)"
         )
 
     # Print summary table
@@ -582,9 +582,9 @@ def run_benchmark(
     table.add_column("Winner", justify="center")
 
     for fault, s in summary.items():
-        mg_str = (
-            f"{s['mg_fail']}/{s['n_trials']} ({s['predgate_fail_rate']:.0%}) / "
-            f"{s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%})"
+        pg_str = (
+            f"{s['pg_fail']}/{s['n_trials']} ({s['predgate_fail_rate']:.0%}) / "
+            f"{s['pg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%})"
         )
         bl_str = f"{s['bl_detected']}/{s['n_trials']} ({s['baseline_detection_rate']:.0%})"
         winner = (
@@ -598,13 +598,13 @@ def run_benchmark(
         )
 
         if fault == "noop":
-            mg_str = f"{s['mg_fail']}/{s['n_trials']}F / {s['mg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%} FP)"
+            pg_str = f"{s['pg_fail']}/{s['n_trials']}F / {s['pg_detected']}/{s['n_trials']} ({s['predgate_detection_rate']:.0%} FP)"
             bl_str = f"{s['bl_detected']}/{s['n_trials']} ({s['baseline_detection_rate']:.0%} FP)"
             winner = (
                 "✅ PG" if s["predgate_detection_rate"] <= s["baseline_detection_rate"] else "❌ BL"
             )
 
-        table.add_row(fault, s["description"], mg_str, bl_str, winner)
+        table.add_row(fault, s["description"], pg_str, bl_str, winner)
 
     console.print(table)
 
@@ -691,12 +691,12 @@ def generate_benchmark_markdown_from_json(
     seed_range_str = f"`{seeds[0]}..{seeds[-1]}` (N={len(seeds)})"
     noop = summary.get("noop", {})
     noop_n = noop.get("n_trials", len(seeds))
-    noop_fail_k = noop.get("mg_fail", noop.get("mg_detected", 0))
+    noop_fail_k = noop.get("pg_fail", noop.get("pg_detected", 0))
     noop_fail_rate = noop.get("predgate_fail_rate", noop.get("predgate_detection_rate", 0.0))
     noop_fail_ci = noop.get("predgate_fail_ci_95", noop.get("predgate_ci_95", [0.0, 0.114]))
-    noop_mg_k = noop.get("mg_detected", 0)
-    noop_mg_rate = noop.get("predgate_detection_rate", 0.0)
-    noop_mg_ci = noop.get("predgate_ci_95", [0.0, 0.114])
+    noop_pg_k = noop.get("pg_detected", 0)
+    noop_pg_rate = noop.get("predgate_detection_rate", 0.0)
+    noop_pg_ci = noop.get("predgate_ci_95", [0.0, 0.114])
     noop_bl_k = noop.get("bl_detected", 0)
     noop_bl_rate = noop.get("baseline_detection_rate", 0.0)
     noop_bl_ci = noop.get("baseline_ci_95", [0.0, 0.114])
@@ -717,7 +717,7 @@ def generate_benchmark_markdown_from_json(
         f"- **Evaluated Code Commit Hash**: `{commit_hash}`",
         f"- **Synthetic Suite Seeds**: {seed_range_str}",
         f"- **No-op FP (PredGate FAIL-only)**: **{_fmt_rate_ci(noop_fail_k, noop_n, noop_fail_rate, noop_fail_ci, 'FP')}**",
-        f"- **No-op FP (PredGate Flagged WARN+FAIL)**: **{_fmt_rate_ci(noop_mg_k, noop_n, noop_mg_rate, noop_mg_ci, 'FP')}**",
+        f"- **No-op FP (PredGate Flagged WARN+FAIL)**: **{_fmt_rate_ci(noop_pg_k, noop_n, noop_pg_rate, noop_pg_ci, 'FP')}**",
         f"- **No-op FP (Overall Accuracy Baseline)**: **{_fmt_rate_ci(noop_bl_k, noop_n, noop_bl_rate, noop_bl_ci, 'FP')}**",
     ]
     if per_seed_artifact:
@@ -760,10 +760,10 @@ def generate_benchmark_markdown_from_json(
     for fault, s in summary.items():
         n = int(s["n_trials"])
         suf = "FP" if fault == "noop" else ""
-        fail_k = int(s.get("mg_fail", s["mg_detected"]))
+        fail_k = int(s.get("pg_fail", s["pg_detected"]))
         fail_r = float(s.get("predgate_fail_rate", s["predgate_detection_rate"]))
         fail_ci = s.get("predgate_fail_ci_95", s["predgate_ci_95"])
-        flag_k = int(s["mg_detected"])
+        flag_k = int(s["pg_detected"])
         flag_r = float(s["predgate_detection_rate"])
         flag_ci = s["predgate_ci_95"]
         bl_k = int(s["bl_detected"])

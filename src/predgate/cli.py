@@ -292,12 +292,7 @@ def run(
         import httpx
 
         api_url = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
-        api_token = (
-            os.getenv("PREDGATE_API_TOKEN")
-            or os.getenv("PREDGATE_ADMIN_TOKEN")
-            or os.getenv("MODELGATE_API_TOKEN")
-            or os.getenv("MODELGATE_ADMIN_TOKEN", "")
-        )
+        api_token = os.getenv("PREDGATE_API_TOKEN") or os.getenv("PREDGATE_ADMIN_TOKEN", "")
         headers = {"Content-Type": "application/json"}
         if api_token:
             headers["Authorization"] = f"Bearer {api_token}"
