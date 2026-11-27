@@ -1,19 +1,19 @@
 # PredGate Champion Baseline CODEOWNERS
 #
 # GitHub branch protection + CODEOWNERS governs who may merge PRs modifying
-# /champion/ or /champion.dvc (no custom CI approval bypass exists).
-# Enable in GitHub:
+# /examples/credit-risk-demo/champion/ or /examples/credit-risk-demo/champion.dvc
+# (no custom CI approval bypass exists). Enable in GitHub:
 #   Settings -> Branches -> Branch protection rules -> Require review from Code Owners
 
 # ── Option A: Personal / User GitHub Account (active) ────────────────────────
-# Active rule covering both /champion/ and /champion.dvc
+# Active rule covering both /examples/credit-risk-demo/champion/ and /examples/credit-risk-demo/champion.dvc
 # (replace with @<your-github-username> if forked to another personal account):
-/champion* @taqi-stark
+/examples/credit-risk-demo/champion* @taqi-stark
 
 # ── Option B: GitHub Organization Account (commented reference) ──────────────
 # Organization teams MUST include the @<org>/ prefix (bare @team-name is parsed
 # by GitHub as a personal username, not an org team). To switch from a personal
 # account to organization teams, replace the active line above with:
 #
-# /champion/ @<your-org>/<ml-admins-team> @<your-org>/<ml-reviewers-team>
-# /champion.dvc @<your-org>/<ml-admins-team> @<your-org>/<ml-reviewers-team>
+# /examples/credit-risk-demo/champion/ @<your-org>/<ml-admins-team> @<your-org>/<ml-reviewers-team>
+# /examples/credit-risk-demo/champion.dvc @<your-org>/<ml-admins-team> @<your-org>/<ml-reviewers-team>

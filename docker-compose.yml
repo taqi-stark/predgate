@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - predgate-data:/app/data
+      - predgate-data:/app/examples/credit-risk-demo/data
       - predgate-db:/app/db
       - mlflow-data:/mlflow
     environment:
@@ -46,7 +46,7 @@ services:
       dockerfile: Dockerfile
     restart: "no"
     volumes:
-      - predgate-data:/app/data
+      - predgate-data:/app/examples/credit-risk-demo/data
       - predgate-db:/app/db
       - mlflow-data:/mlflow
     environment:

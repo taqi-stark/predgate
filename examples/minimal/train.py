@@ -29,9 +29,7 @@ def load_public_dataset() -> pd.DataFrame:
 def build_model(X_train: pd.DataFrame, y_train: pd.Series, seed: int = 42) -> Pipeline:
     """Train a GradientBoostingClassifier pipeline (ignores patient_id)."""
     cat_cols = [c for c in ["sex_group", "age_group"] if c in X_train.columns]
-    num_cols = [
-        c for c in X_train.columns if c not in cat_cols and c != "patient_id"
-    ]
+    num_cols = [c for c in X_train.columns if c not in cat_cols and c != "patient_id"]
     preprocessor = ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), num_cols),
@@ -70,4 +68,6 @@ if __name__ == "__main__":
     # reference.csv is the baseline training snapshot the champion was trained on
     train_df.to_csv(data_dir / "reference.csv", index=False)
     test_df.to_csv(data_dir / "test.csv", index=False)
-    print(f"Saved train={len(train_df)}, reference={len(train_df)}, test={len(test_df)} -> {data_dir}/")
+    print(
+        f"Saved train={len(train_df)}, reference={len(train_df)}, test={len(test_df)} -> {data_dir}/"
+    )

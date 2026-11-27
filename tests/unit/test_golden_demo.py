@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,13 +14,17 @@ from predgate.cli import app
 
 runner = CliRunner()
 
-DEMO_CONFIG = Path("predgate.yaml")
+DEMO_DIR = Path("examples/credit-risk-demo")
+DEMO_CONFIG = DEMO_DIR / "predgate.yaml"
 
 
 def test_demo_run_matches_golden_verdict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Running `predgate run` on the demo reproduces the golden verdict.json metrics."""
     if not DEMO_CONFIG.exists():
-        pytest.skip("Demo config not present at repository root")
+        pytest.skip("Demo config not present")
+
+    if not (DEMO_DIR / "data" / "train.csv").exists():
+        subprocess.run([sys.executable, str(DEMO_DIR / "train.py")], check=True)
 
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'mlflow.db'}")
     monkeypatch.setenv("API_URL", "http://127.0.0.1:1")

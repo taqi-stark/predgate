@@ -2,18 +2,19 @@ project: credit-risk-demo
 seed: 42
 
 model:
-  entrypoint: demo/train.py:build_model
+  entrypoint: examples/credit-risk-demo/train.py:build_model
   task: classification
 
 data:
-  train: data/train.csv
-  test: data/test.csv
-  reference: data/reference.csv
+  train: examples/credit-risk-demo/data/train.csv
+  test: examples/credit-risk-demo/data/test.csv
+  reference: examples/credit-risk-demo/data/reference.csv
   target: default
-  schema: demo/contracts/schema.py:schema
+  schema: examples/credit-risk-demo/contracts/schema.py:schema
 
 champion:
   mlflow_alias: champion
+  baseline_dir: examples/credit-risk-demo/champion
 
 mlflow:
   tracking_uri: sqlite:///mlflow.db

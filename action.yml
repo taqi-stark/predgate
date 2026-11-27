@@ -32,9 +32,9 @@ inputs:
     required: false
     default: ''
   setup-data:
-    description: 'Command to prepare data on a clean checkout when data/train.csv is absent (e.g. dvc pull or python demo/train.py)'
+    description: 'Optional command to prepare data on a clean checkout when training data is absent (e.g. dvc pull or python examples/credit-risk-demo/train.py)'
     required: false
-    default: 'python demo/train.py'
+    default: ''
   fail-on-verdict:
     description: 'Fail the GitHub Actions workflow step if the verdict is FAIL'
     required: false
@@ -161,7 +161,8 @@ runs:
           exit 1
         fi
 
-        if [ ! -f "data/train.csv" ]; then
+        TRAIN_DATA=$(python -c "import yaml; print((yaml.safe_load(open('${{ inputs.config }}')) or {}).get('data', {}).get('train', 'data/train.csv'))" 2>/dev/null || echo "data/train.csv")
+        if [ ! -f "$TRAIN_DATA" ]; then
           if [ -s ".dvc/config" ] && command -v dvc >/dev/null 2>&1; then
             dvc pull
           elif [ -n "${{ inputs.setup-data }}" ]; then

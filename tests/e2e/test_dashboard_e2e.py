@@ -150,9 +150,10 @@ def test_e2e_cli_api_dashboard_slice_explorer_and_rbac(tmp_path: Path) -> None:
         _wait_http(f"http://localhost:{dash_port}/")
 
         # Ensure demo data exists
-        if not (repo_root / "data" / "train.csv").exists():
+        demo_dir = repo_root / "examples" / "credit-risk-demo"
+        if not (demo_dir / "data" / "train.csv").exists():
             subprocess.run(
-                [sys.executable, str(repo_root / "demo" / "train.py")],
+                [sys.executable, str(demo_dir / "train.py")],
                 cwd=str(repo_root),
                 check=True,
             )
@@ -165,7 +166,7 @@ def test_e2e_cli_api_dashboard_slice_explorer_and_rbac(tmp_path: Path) -> None:
             "PREDGATE_API_TOKEN": tokens["engineer"],
         }
         # Use a fast copy of predgate.yaml (fewer bootstrap resamples for quick E2E)
-        cfg = yaml.safe_load((repo_root / "predgate.yaml").read_text())
+        cfg = yaml.safe_load((demo_dir / "predgate.yaml").read_text())
         cfg["checks"]["slices"]["n_bootstrap"] = 100
         cfg["mlflow"]["tracking_uri"] = f"sqlite:///{tmp_path / 'mlflow.db'}"
         cfg_path = tmp_path / "e2e_predgate.yaml"

@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir \
 
 COPY . .
 
-# Generate demo data inside image (/app/data is persisted via named volume predgate-data)
-RUN python demo/train.py
+# Generate demo data inside image (persisted via named volume predgate-data)
+RUN python examples/credit-risk-demo/train.py
 
 EXPOSE 8000
 

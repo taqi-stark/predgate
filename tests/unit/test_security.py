@@ -199,7 +199,7 @@ def test_workflow_and_action_install_pinned_not_pr_head() -> None:
     assert "git archive" in workflow_text
     assert "git archive" in action_text
 
-    # In workflow, champion verification must happen BEFORE running untrusted PR demo/train.py
+    # In workflow, champion verification must happen BEFORE running untrusted PR train.py
     assert workflow_text.index("Verify champion baseline from base branch") < workflow_text.index(
         "Generate demo data"
     )

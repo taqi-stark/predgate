@@ -29,6 +29,7 @@ from predgate.auth import create_user
 
 API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
 MLFLOW_URL = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000").rstrip("/")
+DEMO_DIR = Path("examples/credit-risk-demo")
 
 
 def wait_for_service(url: str, name: str, max_retries: int = 45) -> bool:
@@ -62,7 +63,7 @@ def _ensure_champion_in_mlflow(base_cfg_path: Path, run_env: dict[str, str]) -> 
 
     First attempts `predgate baseline import` from the verified `champion/` folder.
     If that fails (for instance, Python/sklearn pickle ABI mismatch in a different
-    container image), trains the real baseline model from `demo/train.py:build_model`
+    container image), trains the real baseline model from `examples/credit-risk-demo/train.py:build_model`
     and registers it directly as `@champion` in MLflow.
     """
     imp = subprocess.run(
@@ -73,7 +74,7 @@ def _ensure_champion_in_mlflow(base_cfg_path: Path, run_env: dict[str, str]) -> 
             "--config",
             str(base_cfg_path),
             "--dir",
-            "champion",
+            str(DEMO_DIR / "champion"),
         ],
         env=run_env,
         capture_output=True,
@@ -329,17 +330,17 @@ def main() -> None:
     wait_for_service(API_URL, "PredGate API")
     wait_for_service(MLFLOW_URL, "MLflow Server")
 
-    if not Path("data/train.csv").exists():
+    if not (DEMO_DIR / "data" / "train.csv").exists():
         print("\n1. Generating synthetic demo dataset...", flush=True)
-        subprocess.run([sys.executable, "demo/train.py"], check=True)
+        subprocess.run([sys.executable, str(DEMO_DIR / "train.py")], check=True)
     else:
-        print("\n1. Demo dataset already present in data/.", flush=True)
+        print(f"\n1. Demo dataset already present in {DEMO_DIR / 'data'}/.", flush=True)
 
     print("\n2. Provisioning ephemeral seed runner token (no default static token)...", flush=True)
     token = _provision_seed_token()
     run_env = {**os.environ, "API_URL": API_URL, "PREDGATE_API_TOKEN": token}
 
-    base_cfg_path = Path("predgate.yaml")
+    base_cfg_path = DEMO_DIR / "predgate.yaml"
     print("\n3. Ensuring champion baseline is registered in MLflow...", flush=True)
     _ensure_champion_in_mlflow(base_cfg_path, run_env)
 

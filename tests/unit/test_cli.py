@@ -122,7 +122,16 @@ def test_cli_run_success(monkeypatch) -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_dir = Path(tmpdir) / "output"
-        result = runner.invoke(app, ["run", "--config", "predgate.yaml", "--output", str(out_dir)])
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "--config",
+                "examples/credit-risk-demo/predgate.yaml",
+                "--output",
+                str(out_dir),
+            ],
+        )
         assert result.exit_code == 0
         assert (out_dir / "verdict.json").exists()
         assert (out_dir / "pr_comment.md").exists()
@@ -192,7 +201,7 @@ def test_cli_run_fail_verdict_and_invalid_config(
         "predgate.loader.load_candidate_and_champion",
         lambda cfg: (_ for _ in ()).throw(RuntimeError("load crash")),
     )
-    res_crash = runner.invoke(app, ["run", "--config", "predgate.yaml"])
+    res_crash = runner.invoke(app, ["run", "--config", "examples/credit-risk-demo/predgate.yaml"])
     assert res_crash.exit_code == 1
 
     # Failing verdict with reasons and API post
@@ -235,7 +244,10 @@ def test_cli_run_fail_verdict_and_invalid_config(
     monkeypatch.setattr("httpx.post", lambda *a, **kw: MagicMock(status_code=200))
 
     out_dir = tmp_path / "fail_out"
-    res_fail = runner.invoke(app, ["run", "--config", "predgate.yaml", "--output", str(out_dir)])
+    res_fail = runner.invoke(
+        app,
+        ["run", "--config", "examples/credit-risk-demo/predgate.yaml", "--output", str(out_dir)],
+    )
     assert res_fail.exit_code == 1
     assert "FAIL" in res_fail.stdout
 
@@ -277,7 +289,12 @@ def test_cli_bench_serve_baseline_and_users(
             "metrics": {"accuracy": 0.91, "f1": 0.88},
         },
     )
-    assert runner.invoke(app, ["baseline", "export"]).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["baseline", "export", "--config", "examples/credit-risk-demo/predgate.yaml"]
+        ).exit_code
+        == 0
+    )
 
     monkeypatch.setattr(
         "predgate.registry.import_champion_baseline",
@@ -288,7 +305,12 @@ def test_cli_bench_serve_baseline_and_users(
             "metrics": {"accuracy": 0.91, "f1": 0.88},
         },
     )
-    assert runner.invoke(app, ["baseline", "import"]).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["baseline", "import", "--config", "examples/credit-risk-demo/predgate.yaml"]
+        ).exit_code
+        == 0
+    )
 
     # baseline verify (valid and tampered)
     monkeypatch.setattr(

@@ -27,7 +27,7 @@ def create_bad_branch_data(fault_type: str = "degraded_slice", seed: int = 42) -
             - fairness_regression: Bias against one group
         seed: Random seed.
     """
-    data_dir = Path("data")
+    data_dir = Path(__file__).resolve().parent / "data"
     train_df = pd.read_csv(data_dir / "train.csv")
     rng = np.random.RandomState(seed)
 

@@ -148,7 +148,7 @@ if __name__ == "__main__":
     # Generate and save datasets
     print("Generating synthetic credit dataset...")
 
-    data_dir = Path("data")
+    data_dir = Path(__file__).resolve().parent / "data"
     data_dir.mkdir(exist_ok=True)
 
     # Full dataset

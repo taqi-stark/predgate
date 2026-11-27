@@ -298,14 +298,15 @@ def verify_champion_integrity(
     dvc_file = Path(dvc_path) if dvc_path is not None else (in_dir.parent / f"{in_dir.name}.dvc")
 
     if changed_files:
+        norm_dir = in_dir.as_posix().rstrip("/")
         prefix = f"{in_dir.name}/"
         dvc_name = dvc_file.name
         touched = [
             f
             for f in changed_files
-            if f == in_dir.name
-            or f.startswith(prefix)
-            or f == dvc_name
+            if f in (norm_dir, in_dir.name, dvc_name)
+            or f.startswith((f"{norm_dir}/", prefix))
+            or f"/{prefix}" in f
             or f.endswith(f"/{dvc_name}")
         ]
         if touched:

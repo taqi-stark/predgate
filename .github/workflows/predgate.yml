@@ -3,11 +3,7 @@ name: PredGate Quality Gate
 on:
   pull_request:
     paths:
-      - 'demo/**'
-      - 'data/**'
-      - 'champion/**'
-      - 'champion.dvc'
-      - 'predgate.yaml'
+      - 'examples/credit-risk-demo/**'
       - 'src/**'
 
 permissions:
@@ -63,16 +59,17 @@ jobs:
         run: |
           set -euo pipefail
           BASE_REF="${{ steps.trusted_setup.outputs.base_ref }}"
+          DEMO_DIR="examples/credit-risk-demo"
 
           # Surface notice if the PR modifies champion/; merge gating is enforced by GitHub branch protection + CODEOWNERS
-          if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq '^(champion/|champion\.dvc$)'; then
+          if git diff --name-only "origin/${BASE_REF}...HEAD" | grep -Eq "^${DEMO_DIR}/(champion/|champion\.dvc$)"; then
             echo "::notice::PR modifies champion baseline; evaluating against trusted base-branch champion. Merge requires CODEOWNERS approval via branch protection."
           fi
 
           # Extract pinned SHA-256 from base branch champion.dvc (fallback: champion/metadata.json) and fail closed if missing
-          PINNED_SHA=$(git show "origin/${BASE_REF}:champion.dvc" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" 2>/dev/null || true)
+          PINNED_SHA=$(git show "origin/${BASE_REF}:${DEMO_DIR}/champion.dvc" 2>/dev/null | python -c "import sys, yaml; d = yaml.safe_load(sys.stdin) or {}; print((d.get('outs') or [{}])[0].get('sha256', ''))" 2>/dev/null || true)
           if [ -z "$PINNED_SHA" ]; then
-            PINNED_SHA=$(git show "origin/${BASE_REF}:champion/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" 2>/dev/null || true)
+            PINNED_SHA=$(git show "origin/${BASE_REF}:${DEMO_DIR}/champion/metadata.json" 2>/dev/null | python -c "import sys, json; print(json.load(sys.stdin).get('model_sha256', ''))" 2>/dev/null || true)
           fi
           if [ -z "$PINNED_SHA" ]; then
             echo "::error::Could not determine pinned champion SHA-256 from origin/${BASE_REF}; failing closed" >&2
@@ -80,25 +77,25 @@ jobs:
           fi
 
           # Always load champion/ and champion.dvc from the trusted base branch (fail closed if missing)
-          git checkout "origin/${BASE_REF}" -- champion champion.dvc
+          git checkout "origin/${BASE_REF}" -- "${DEMO_DIR}/champion" "${DEMO_DIR}/champion.dvc"
 
           # Verify SHA-256 against pinned base-branch value before any untrusted PR code runs
           predgate baseline verify \
-            --dir champion \
-            --dvc champion.dvc \
+            --dir "${DEMO_DIR}/champion" \
+            --dvc "${DEMO_DIR}/champion.dvc" \
             --pinned-sha256 "$PINNED_SHA"
 
           echo "pinned_sha=${PINNED_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Generate demo data
-        run: python demo/train.py
+        run: python examples/credit-risk-demo/train.py
 
       - name: Import verified champion baseline into MLflow
         run: |
           set -euo pipefail
           predgate baseline import \
-            --config predgate.yaml \
-            --dir champion \
+            --config examples/credit-risk-demo/predgate.yaml \
+            --dir examples/credit-risk-demo/champion \
             --pinned-sha256 "${{ steps.verify_champion.outputs.pinned_sha }}"
 
       - name: Run PredGate
@@ -107,7 +104,7 @@ jobs:
           CHAMPION_PINNED_SHA256: ${{ steps.verify_champion.outputs.pinned_sha }}
         run: |
           predgate run \
-            --config predgate.yaml \
+            --config examples/credit-risk-demo/predgate.yaml \
             --branch "${{ github.head_ref }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --output predgate_output

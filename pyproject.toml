@@ -75,12 +75,11 @@ include = [
     "/src",
     "/tests",
     "/docs",
-    "/demo",
+    "/examples",
     "/scripts",
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",
-    "/predgate.yaml",
     "/action.yml",
 ]
 

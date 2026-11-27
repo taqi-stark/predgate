@@ -24,8 +24,10 @@ def measure_scale(n_test: int, repo_root: Path) -> dict[str, object]:
         data_dir.mkdir()
 
         # Generate train (3,000), reference (1,000), and test (n_test)
-        sys.path.insert(0, str(repo_root))
-        from demo.train import generate_dataset
+        demo_dir = repo_root / "examples" / "credit-risk-demo"
+        from predgate.loader import import_entrypoint
+
+        generate_dataset = import_entrypoint(f"{demo_dir / 'train.py'}:generate_dataset")
 
         base_df = generate_dataset(n_samples=4000, seed=42)
         base_df.iloc[:3000].to_csv(data_dir / "train.csv", index=False)
@@ -38,7 +40,7 @@ def measure_scale(n_test: int, repo_root: Path) -> dict[str, object]:
             "project": f"perf-{n_test}",
             "seed": 42,
             "model": {
-                "entrypoint": str(repo_root / "demo" / "train.py") + ":build_model",
+                "entrypoint": str(demo_dir / "train.py") + ":build_model",
                 "task": "classification",
             },
             "data": {
@@ -46,11 +48,11 @@ def measure_scale(n_test: int, repo_root: Path) -> dict[str, object]:
                 "test": str(data_dir / "test.csv"),
                 "reference": str(data_dir / "reference.csv"),
                 "target": "default",
-                "schema": str(repo_root / "demo" / "contracts" / "schema.py") + ":schema",
+                "schema": str(demo_dir / "contracts" / "schema.py") + ":schema",
             },
             "champion": {
                 "mlflow_alias": "champion",
-                "baseline_dir": str(repo_root / "champion"),
+                "baseline_dir": str(demo_dir / "champion"),
             },
             "mlflow": {
                 "tracking_uri": f"sqlite:///{tmp_dir / 'mlflow.db'}",
