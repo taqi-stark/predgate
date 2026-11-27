@@ -52,7 +52,7 @@ Consolidate MLflow tracking to a single configurable tracking URI specified in `
 Evaluating a model requires knowing the exact training and evaluation dataset used. Tracking large CSVs or Parquet files directly in Git bloats the repository.
 
 ### Decision
-Use **DVC (Data Version Control)** to manage `data/` via `.dvc` tracking files and SHA-256 data hashes. The CLI captures both `git_sha` and `dvc_hash` at run-time, allowing `predgate reproduce --run-id <ID>` to pull the exact dataset and reproduce identical verdicts.
+Support **DVC (Data Version Control)** optionally via `.dvc` pointer files and SHA-256 hashes while keeping included demo examples self-contained with deterministic dataset generators. The CLI captures `git_sha`, file SHA-256 `data_hashes`, and optional `dvc_hash` at run-time, allowing `predgate reproduce <RUN_ID>` to check out DVC-tracked data when present and verify reproduction.
 
 ### Consequences
 - **Positive**: Full audit trail and deterministic reproducibility for compliance and debugging.

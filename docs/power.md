@@ -54,7 +54,7 @@ $$n_{\text{FAIL}}(\Delta, \Delta_{\max}, p_d) = \left\lceil \frac{(z_{1-\alpha/2
 
 ## 3. Two-Group Fairness Gap & Unpaired Proportion Difference (`fairness.py`)
 
-For comparing two independent subgroups of equal size $n$ per group (matching `_compute_min_detectable_gaps` in [`src/predgate/checks/fairness.py`](../src/predgate/checks/fairness.py)), the variance of the difference in subgroup rates is $2 p (1 - p) / n$, giving:
+For comparing two independent subgroups of equal size $n$ per group (matching `_compute_min_detectable_gaps` in [`src/predgate/checks/fairness.py`](https://github.com/taqi-stark/predgate/blob/main/src/predgate/checks/fairness.py)), the variance of the difference in subgroup rates is $2 p (1 - p) / n$, giving:
 
 $$n_{\text{per group}}(\Delta, p) = \left\lceil \frac{2 \, (z_{1-\alpha/2} + z_{1-\beta})^2 \, p(1 - p)}{\Delta^2} \right\rceil$$
 

@@ -3,23 +3,19 @@ site_description: CI/CD quality gate for machine learning models
 repo_url: https://github.com/taqi-stark/predgate
 repo_name: taqi-stark/predgate
 docs_dir: docs
-validation:
-  links:
-    not_found: info
-    unrecognized_links: ignore
 
 theme:
   name: material
   palette:
     - scheme: slate
-      primary: blue
-      accent: amber
+      primary: black
+      accent: blue
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
     - scheme: default
-      primary: blue
-      accent: amber
+      primary: black
+      accent: blue
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
@@ -32,17 +28,36 @@ theme:
 markdown_extensions:
   - admonition
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - tables
   - toc:
       permalink: true
 
 nav:
-  - User Guide: usage.md
-  - Statistical Power: power.md
-  - Performance & Memory: performance.md
-  - Benchmark Results: benchmark.md
-  - Architecture: architecture.md
-  - Decisions (ADRs): decisions.md
-  - Releasing (OIDC): RELEASING.md
-  - Release Notes (v0.1.0-alpha): RELEASE_NOTES_v0.1.0-alpha.md
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Concepts:
+      - Quality Checks: concepts/checks.md
+      - Architecture: architecture.md
+      - Decisions (ADRs): decisions.md
+  - Guides:
+      - GitHub Actions: guides/github.md
+      - Docker Compose: guides/docker.md
+      - Dashboard: guides/dashboard.md
+      - Config Presets: guides/presets.md
+  - Reference:
+      - Configuration (predgate.yaml): reference/config.md
+      - CLI Commands: reference/cli.md
+      - REST API: reference/api.md
+  - Evaluation:
+      - Benchmark Results: benchmark.md
+      - Statistical Power: power.md
+      - Runtime & Memory: performance.md
+  - Operations:
+      - Security & HTTPS: security.md
+      - Releasing (OIDC): RELEASING.md
+      - Release Notes (v0.1.0-alpha): RELEASE_NOTES_v0.1.0-alpha.md

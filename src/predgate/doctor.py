@@ -171,7 +171,7 @@ def _check_config(config_path: Path) -> tuple[DoctorCheck, PredGateConfig | None
                 name="config",
                 status="fail",
                 detail=f"Invalid config in {config_path}: {exc}",
-                fix=f"Fix validation errors in {config_path} (see docs/usage.md for the schema).",
+                fix=f"Fix validation errors in {config_path} (see docs/reference/config.md for the schema).",
             ),
             None,
         )

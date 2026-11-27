@@ -9,8 +9,8 @@ git clone https://github.com/taqi-stark/predgate.git
 cd predgate
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-python demo/train.py
-.venv/bin/predgate doctor --config predgate.yaml
+python examples/credit-risk-demo/train.py
+.venv/bin/predgate doctor --config examples/credit-risk-demo/predgate.yaml
 ```
 
 Optional dashboard development (Node.js 20+):
@@ -61,4 +61,4 @@ bash scripts/check_benchmark_fresh.sh
 3. **Wire into CLI & pipeline**: Invoke the check in `src/predgate/cli.py` inside `predgate run`, and update `src/predgate/report.py` if the check emits callout banners or notes.
 4. **Dashboard tab**: Add the check name to `tabs` and `tabLabels` in `dashboard/src/pages/RunDetailPage.tsx` and rebuild `dashboard/dist/`.
 5. **Unit tests**: Add deterministic unit tests covering `pass`, `warn`, `fail`, `skip`, and edge cases in `tests/unit/test_checks.py` and config validation tests in `tests/unit/test_config.py`.
-6. **Documentation & benchmark**: Document the new config fields in `docs/usage.md`, update the "What it catches / What it doesn't" table in `README.md`, and re-run fresh-seed benchmarks per `scripts/check_benchmark_fresh.sh`.
+6. **Documentation & benchmark**: Document the new config fields in `docs/reference/config.md`, update the "What it checks" table in `README.md`, and re-run fresh-seed benchmarks per `scripts/check_benchmark_fresh.sh`.

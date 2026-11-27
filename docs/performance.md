@@ -2,7 +2,7 @@
 
 Measured wall-clock runtime and peak resident memory (`ru_maxrss`) of `predgate run` running the **full 8-check suite with default settings** (`slices.n_bootstrap=1000`, `fairness.n_bootstrap=200`, `fairness.selection_rate_n_bootstrap=1000`, `budgets.latency_samples=20`, `budgets.latency_batch_size=5`) against a persisted GradientBoosting champion on synthetic credit data (3,000 train rows, 1,000 reference rows, varying test rows).
 
-Reproduced with [`scripts/bench_perf.py`](../scripts/bench_perf.py) on a 4-vCPU Linux host (Python 3.12.3, `scikit-learn 1.9.1`, `mlflow 3.18.0`):
+Reproduced with [`scripts/bench_perf.py`](https://github.com/taqi-stark/predgate/blob/main/scripts/bench_perf.py) on a 4-vCPU Linux host (Python 3.12.3, `scikit-learn 1.9.1`, `mlflow 3.18.0`):
 
 | Test Rows | Wall Time (Before → After) | Sum of 8 Checks | Peak RSS (Before → After) | `fairness` (Before → After) | `slices` | `budgets` | `behavioral` | `data_contract` | `drift` + `leakage` + `label_shift` |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

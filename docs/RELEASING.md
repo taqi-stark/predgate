@@ -1,6 +1,6 @@
 # Releasing PredGate (PyPI Trusted Publishing / OIDC)
 
-PredGate publishes to **TestPyPI** and **PyPI** automatically on version tags (`v*`) via [`.github/workflows/release.yml`](../.github/workflows/release.yml) using **OpenID Connect (OIDC) Trusted Publishing** — no long-lived API tokens or repository secrets are required.
+PredGate publishes to **TestPyPI** and **PyPI** automatically on version tags (`v*`) via [`.github/workflows/release.yml`](https://github.com/taqi-stark/predgate/blob/main/.github/workflows/release.yml) using **OpenID Connect (OIDC) Trusted Publishing** — no long-lived API tokens or repository secrets are required.
 
 ---
 
@@ -38,7 +38,7 @@ In your GitHub repository:
    - Create environment **`pypi`** and optionally enable **Required reviewers** (add yourself) so production PyPI publication waits for one-click manual approval after you inspect TestPyPI.
 2. **Solo-Maintainer Branch Protection (**Settings → Branches → Branch protection rules** for `main`)**:
    - Enable **Require status checks to pass before merging** and select **`Run PredGate`** (plus CI checks: `Lint & Type Check`, `Tests & Coverage`, `Benchmark Freshness`, `Dashboard Build`).
-   - **Do NOT enable** *Require a pull request before merging → Require approvals* or *Require review from Code Owners* while maintaining the repository solo — GitHub does not allow a solo author to approve their own PR, so enabling required reviews or Code Owner enforcement blocks normal merges. Keep [`.github/CODEOWNERS`](../.github/CODEOWNERS) in place and enable Code Owner review enforcement once a second maintainer/reviewer joins.
+   - **Do NOT enable** *Require a pull request before merging → Require approvals* or *Require review from Code Owners* while maintaining the repository solo — GitHub does not allow a solo author to approve their own PR, so enabling required reviews or Code Owner enforcement blocks normal merges. Keep [`.github/CODEOWNERS`](https://github.com/taqi-stark/predgate/blob/main/.github/CODEOWNERS) in place and enable Code Owner review enforcement once a second maintainer/reviewer joins.
 
 ---
 
