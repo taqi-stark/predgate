@@ -1,10 +1,8 @@
-"""PredGate registry and lineage.
-
-Handles MLflow logging, champion promotion, and model reproduction.
-"""
+"""MLflow logging, champion promotion, and baseline export/import/verification."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -35,21 +33,7 @@ def log_run_to_mlflow(
     tracking_uri: str | None = None,
     artifact_location: str | None = None,
 ) -> str | None:
-    """Log a PredGate run to MLflow.
-
-    Args:
-        project: Project/experiment name.
-        verdict: The run verdict.
-        lineage_info: Lineage metadata dict.
-        model: The trained model.
-        seed: Random seed used.
-        metrics: Additional metrics to log.
-        tracking_uri: Configured MLflow tracking URI.
-        artifact_location: Optional directory for artifacts.
-
-    Returns:
-        MLflow run ID, or None if MLflow is unavailable.
-    """
+    """Log run parameters, metrics, artifacts, and model to MLflow; return run ID or `None`."""
     try:
         import mlflow
         import mlflow.sklearn
@@ -100,24 +84,19 @@ def log_run_to_mlflow(
             all_metrics.update({k: float(v) for k, v in metrics.items()})
         for cr in verdict.check_results:
             for key, val in cr.metrics.items():
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     all_metrics[f"{cr.name}_{key}"] = float(val)
-                except (ValueError, TypeError):
-                    pass
         if all_metrics:
             mlflow.log_metrics(all_metrics)
 
-        # Log the model with explicit pip_requirements to skip MLflow's slow
-        # ~18s subprocess-based environment inference on every local run.
+        # Pass explicit pip_requirements to skip MLflow's slow subprocess environment inference.
         try:
             import importlib.metadata as importlib_metadata
 
             pip_reqs: list[str] = []
             for pkg in ("scikit-learn", "numpy", "pandas", "scipy", "cloudpickle"):
-                try:
+                with contextlib.suppress(importlib_metadata.PackageNotFoundError):
                     pip_reqs.append(f"{pkg}=={importlib_metadata.version(pkg)}")
-                except importlib_metadata.PackageNotFoundError:
-                    pass
             mlflow.sklearn.log_model(
                 model,
                 "model",
@@ -145,17 +124,7 @@ def promote_to_champion(
     alias: str = "champion",
     tracking_uri: str | None = None,
 ) -> bool:
-    """Promote a model version to champion in the MLflow registry.
-
-    Args:
-        project: Project/model name in the registry.
-        run_id: MLflow run ID to promote.
-        alias: Alias to set (default: "champion").
-        tracking_uri: Optional MLflow tracking URI.
-
-    Returns:
-        True if promotion succeeded.
-    """
+    """Register `run_id`'s model in MLflow and assign `alias`; return True on success."""
     try:
         import mlflow
 
@@ -191,14 +160,7 @@ def promote_to_champion(
 
 
 def get_reproduce_command(run_id: str) -> str:
-    """Generate the CLI command to reproduce a run.
-
-    Args:
-        run_id: MLflow run ID.
-
-    Returns:
-        CLI command string.
-    """
+    """Return the CLI command to reproduce a logged run."""
     return f"predgate reproduce {run_id}"
 
 

@@ -1,7 +1,4 @@
-"""PredGate report builder.
-
-Produces Markdown PR comments, JSON payloads, and HTML reports.
-"""
+"""Report builders for Markdown PR comments, API JSON payloads, and HTML reports."""
 
 from __future__ import annotations
 
@@ -24,20 +21,7 @@ def build_pr_comment(
     run_id: int | str = "",
     dashboard_url: str = "http://localhost:3000",
 ) -> str:
-    """Build a Markdown PR comment from a verdict.
-
-    Args:
-        verdict: The PredGate verdict.
-        candidate_sha: Git SHA of the candidate commit.
-        champion_version: Version string for the champion model.
-        seed: Random seed used.
-        data_hash: Short data hash.
-        run_id: Run identifier.
-        dashboard_url: URL to the dashboard.
-
-    Returns:
-        Markdown string for the PR comment.
-    """
+    """Build a Markdown PR comment summarizing the verdict, checks, and inconclusive slices."""
     status_emoji = {
         "pass": "✅",
         "warn": "⚠️",
@@ -154,19 +138,7 @@ def build_json_payload(
     branch: str = "",
     pr_number: int | None = None,
 ) -> dict[str, Any]:
-    """Build a JSON payload for the API.
-
-    Args:
-        verdict: The PredGate verdict.
-        lineage: Optional lineage information.
-        run_id: Run identifier.
-        project: Project name.
-        branch: Branch name.
-        pr_number: PR number.
-
-    Returns:
-        Dictionary suitable for JSON serialization.
-    """
+    """Build a JSON-serializable run payload for the PredGate API."""
     payload: dict[str, Any] = {
         "project": project,
         "branch": branch,
@@ -197,16 +169,7 @@ def build_html_report(
     lineage: LineageInfo | None = None,
     project: str = "",
 ) -> str:
-    """Build an HTML report file.
-
-    Args:
-        verdict: The PredGate verdict.
-        lineage: Optional lineage information.
-        project: Project name.
-
-    Returns:
-        HTML string.
-    """
+    """Build a standalone HTML report for a verdict and optional lineage."""
     status_colors = {
         "pass": "#22c55e",
         "warn": "#f59e0b",
@@ -309,7 +272,7 @@ def build_html_report(
             <tr><td>Data Hashes</td><td><code>{json.dumps(lineage.data_hashes)}</code></td></tr>
         </table>"""
 
-    html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <title>PredGate Report — {project}</title>
@@ -356,5 +319,3 @@ def build_html_report(
     </p>
 </body>
 </html>"""
-
-    return html

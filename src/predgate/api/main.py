@@ -1,11 +1,8 @@
-"""PredGate FastAPI application.
-
-Provides REST API for run ingestion, querying, comparison, approval,
-model promotion, role-based access control, and append-only audit logging.
-"""
+"""PredGate REST API for run ingestion, comparison, approvals, promotion, RBAC, and audit logging."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from contextlib import asynccontextmanager
@@ -35,7 +32,7 @@ engine = create_engine(DATABASE_URL, echo=False)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Create database tables and bootstrap optional admin user on startup."""
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
@@ -296,10 +293,8 @@ def compare_runs(
             val_b = metrics_b.get(key)
             delta = None
             if val_a is not None and val_b is not None:
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     delta = float(val_b) - float(val_a)
-                except (ValueError, TypeError):
-                    pass
             comparison.append(
                 {
                     "name": key,

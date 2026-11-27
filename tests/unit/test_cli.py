@@ -263,7 +263,7 @@ def test_cli_compare_and_promote_api_branches(monkeypatch: pytest.MonkeyPatch) -
 def test_cli_bench_serve_baseline_and_users(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("predgate.benchmark.run_benchmark", lambda console: {})
+    monkeypatch.setattr("predgate.bench.run_benchmark", lambda console: {})
     assert runner.invoke(app, ["bench"]).exit_code == 0
 
     monkeypatch.setattr("uvicorn.run", lambda *a, **kw: None)

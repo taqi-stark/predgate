@@ -45,7 +45,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, RobustScaler, StandardScaler
 
-from predgate.benchmark import (
+from predgate.bench import (
     FAULT_DESCRIPTIONS,
     GroupThresholdModel,
     _generate_data,

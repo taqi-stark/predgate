@@ -1,11 +1,8 @@
-"""PredGate candidate loader.
-
-Imports the model entrypoint, trains with a fixed seed, loads the champion
-from MLflow, and records lineage information.
-"""
+"""Candidate model training, champion loading, model-family detection, and lineage capture."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import subprocess
@@ -35,25 +32,16 @@ class LineageInfo:
 
 
 def get_dvc_hash(dvc_path: str | Path = "data.dvc") -> str:
-    """Read data hash from DVC file if present.
-
-    Args:
-        dvc_path: Path to .dvc file (default: data.dvc).
-
-    Returns:
-        DVC data hash string, or empty string.
-    """
+    """Read the primary output MD5 hash from a `.dvc` file, or return `""`."""
     path = Path(dvc_path)
     if path.exists():
-        try:
+        with contextlib.suppress(Exception):
             import yaml
 
             with open(path) as f:
                 d = yaml.safe_load(f)
                 if d and "outs" in d and len(d["outs"]) > 0:
                     return str(d["outs"][0].get("md5", ""))
-        except Exception:
-            pass
     return ""
 
 
@@ -75,7 +63,7 @@ class LoadResult:
 def _is_mock_object(obj: Any) -> bool:
     """Return True if obj is a unittest.mock proxy (which fabricates attributes dynamically)."""
     mod = getattr(type(obj), "__module__", "") or ""
-    return mod.startswith("unittest.mock") or mod.startswith("mock.")
+    return mod.startswith(("unittest.mock", "mock."))
 
 
 def _is_ensemble_estimator(obj: Any) -> bool:
@@ -178,14 +166,7 @@ def detect_model_family_change(
 
 
 def compute_file_hash(path: str | Path) -> str:
-    """Compute SHA-256 hash of a file.
-
-    Args:
-        path: Path to the file.
-
-    Returns:
-        Hex digest of the SHA-256 hash.
-    """
+    """Return the SHA-256 hex digest of a file."""
     sha256 = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
@@ -194,11 +175,7 @@ def compute_file_hash(path: str | Path) -> str:
 
 
 def get_git_sha() -> str:
-    """Get the current git commit SHA.
-
-    Returns:
-        Short git SHA or empty string if not in a git repo.
-    """
+    """Return the short git commit SHA, or `""` outside a git repository."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -226,34 +203,20 @@ _CORE_LINEAGE_PACKAGES: tuple[str, ...] = (
 
 
 def get_package_versions() -> dict[str, str]:
-    """Get versions of core runtime packages via importlib.metadata (avoids slow pip freeze subprocess).
-
-    Returns:
-        Dictionary of package_name -> version.
-    """
+    """Return core runtime package versions via importlib.metadata (avoids spawning `pip freeze`)."""
     import importlib.metadata as importlib_metadata
 
     versions: dict[str, str] = {}
     for pkg in _CORE_LINEAGE_PACKAGES:
-        try:
+        with contextlib.suppress(importlib_metadata.PackageNotFoundError):
             versions[pkg] = importlib_metadata.version(pkg)
-        except importlib_metadata.PackageNotFoundError:
-            pass
     return versions
 
 
 def import_entrypoint(entrypoint: str) -> Any:
-    """Import a function from a module:function entrypoint string.
-
-    Args:
-        entrypoint: String like 'demo/train.py:build_model'.
-
-    Returns:
-        The callable function.
-    """
+    """Import a callable from a `path/to/file.py:func` or `module:func` string."""
     module_path, func_name = entrypoint.rsplit(":", 1)
 
-    # Convert file path to module import
     path = Path(module_path)
     if path.exists():
         spec = importlib.util.spec_from_file_location("_entrypoint", path)
@@ -264,19 +227,11 @@ def import_entrypoint(entrypoint: str) -> Any:
     else:
         module = importlib.import_module(module_path)
 
-    func = getattr(module, func_name)
-    return func
+    return getattr(module, func_name)
 
 
 def load_data(config: PredGateConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
-    """Load train, test, and optional reference data.
-
-    Args:
-        config: PredGate configuration.
-
-    Returns:
-        Tuple of (train_df, test_df, reference_df).
-    """
+    """Load `(train_df, test_df, reference_df)` CSVs configured in `config.data`."""
     train_df = pd.read_csv(config.data.train)
     test_df = pd.read_csv(config.data.test)
 
@@ -292,14 +247,7 @@ def load_data(config: PredGateConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.Da
 def load_candidate_and_champion(
     config: PredGateConfig,
 ) -> LoadResult:
-    """Load/train the candidate model and load the champion from MLflow.
-
-    Args:
-        config: PredGate configuration.
-
-    Returns:
-        LoadResult with both models and metadata.
-    """
+    """Train the candidate entrypoint and load the champion from MLflow or `champion/`."""
     # Set the seed
     np.random.seed(config.seed)
 
@@ -396,7 +344,7 @@ def load_candidate_and_champion(
         python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         package_versions=get_package_versions(),
         seed=config.seed,
-        hyperparameters=getattr(candidate_model, "get_params", lambda: {})(),
+        hyperparameters=getattr(candidate_model, "get_params", dict)(),
     )
 
     return LoadResult(

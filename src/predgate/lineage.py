@@ -1,11 +1,8 @@
-"""PredGate lineage tracking.
-
-Records and verifies full lineage: data hashes, git commit, environment,
-hyperparameters, and seed. Supports exact model reproduction.
-"""
+"""Lineage capture, persistence, and reproduction checks."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
@@ -22,16 +19,7 @@ def capture_lineage(
     seed: int,
     model: Any = None,
 ) -> LineageInfo:
-    """Capture full lineage information for the current environment.
-
-    Args:
-        data_paths: Mapping of name -> path for data files.
-        seed: Random seed used.
-        model: Optional model to extract hyperparameters from.
-
-    Returns:
-        LineageInfo with all captured information.
-    """
+    """Capture git, data hashes, Python/package versions, seed, and model hyperparameters."""
     data_hashes: dict[str, str] = {}
     for name, path in data_paths.items():
         p = Path(path)
@@ -40,10 +28,8 @@ def capture_lineage(
 
     hyperparams: dict[str, Any] = {}
     if model is not None and hasattr(model, "get_params"):
-        try:
+        with contextlib.suppress(Exception):
             hyperparams = model.get_params()
-        except Exception:
-            pass
 
     package_versions = get_package_versions()
 
@@ -58,12 +44,7 @@ def capture_lineage(
 
 
 def save_lineage(lineage: LineageInfo, path: str | Path) -> None:
-    """Save lineage information to a JSON file.
-
-    Args:
-        lineage: LineageInfo to save.
-        path: Output file path.
-    """
+    """Serialize a `LineageInfo` record to JSON."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -81,14 +62,7 @@ def save_lineage(lineage: LineageInfo, path: str | Path) -> None:
 
 
 def load_lineage(path: str | Path) -> LineageInfo:
-    """Load lineage information from a JSON file.
-
-    Args:
-        path: Path to the lineage JSON file.
-
-    Returns:
-        LineageInfo instance.
-    """
+    """Load a `LineageInfo` record from JSON."""
     with open(path) as f:
         data = json.load(f)
 
@@ -108,17 +82,7 @@ def verify_reproduction(
     original_metric: float,
     tolerance: float = 0.001,
 ) -> tuple[bool, str]:
-    """Verify that a reproduced model matches the original.
-
-    Args:
-        original_lineage: Lineage from the original run.
-        reproduced_metric: Metric from the reproduced model.
-        original_metric: Metric from the original model.
-        tolerance: Acceptable difference in metrics.
-
-    Returns:
-        Tuple of (matched, message).
-    """
+    """Return `(matched, message)` checking whether a reproduced metric is within `tolerance`."""
     diff = abs(reproduced_metric - original_metric)
     matched = diff <= tolerance
 

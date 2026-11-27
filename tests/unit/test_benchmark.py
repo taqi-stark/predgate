@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from predgate.benchmark import FAULT_DESCRIPTIONS, _generate_data, inject_fault, run_single_trial
+from predgate.bench import FAULT_DESCRIPTIONS, _generate_data, inject_fault, run_single_trial
 
 
 def test_generate_data() -> None:
@@ -38,7 +38,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     from rich.console import Console
     from sklearn.linear_model import LogisticRegression
 
-    from predgate.benchmark import (
+    from predgate.bench import (
         GroupThresholdModel,
         _generate_benchmark_markdown,
         run_benchmark,
@@ -65,7 +65,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
     md_path = tmp_path / "bench.md"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "predgate.benchmark.run_single_trial",
+        "predgate.bench.runner.run_single_trial",
         lambda fault, seed: {
             "fault_type": fault,
             "seed": seed,
@@ -87,7 +87,7 @@ def test_group_threshold_model_and_markdown_gen(tmp_path, monkeypatch) -> None:
 
     import numpy as np
 
-    from predgate.benchmark import (
+    from predgate.bench import (
         fixed_dp_limit_baseline,
         generate_benchmark_markdown_from_json,
         per_group_accuracy_drop_baseline,

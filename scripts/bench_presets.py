@@ -27,7 +27,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 import bench_public as bp  # noqa: E402
 
-from predgate.benchmark import _get_git_commit, wilson_ci  # noqa: E402
+from predgate.bench import _get_git_commit, wilson_ci  # noqa: E402
 from predgate.checks.budgets import run_budgets_check  # noqa: E402
 from predgate.checks.drift import run_drift_check  # noqa: E402
 from predgate.checks.fairness import run_fairness_check  # noqa: E402
